@@ -1,13 +1,13 @@
----
-cycle: 2
-step: "005"
-type: approach
----
+# Step 005 — Cycle-2 ISSUE-1/2/3 fix approach
 
-## Approach check: cycle-2 review fixes — ISSUE-1, ISSUE-2, ISSUE-3
+Cycle: 2
+Pass: 2
+Files Changed: scripts/card.py, scripts/pcli.py, scripts/render_portfolio.py, scripts/render_resume.py
 
-### Advisor response (≤100 words)
+## Advisor Verdict
+PASS
 
+## Advisor Feedback
 1. Skip-context flag is right; cleaner: drop disk validation from card.py entirely, model only
    validates path syntax. Visual existence = renderer concern + one post-load scan in CardRepo.
    `portfolio_mode` then only toggles whether scan emits warnings vs errors.
@@ -17,11 +17,8 @@ type: approach
 3. Change the single source of truth. If `pcli.py` computes its own default, fix there and have
    render_*.py accept the passed path; avoid duplicate timestamp/dir logic in two places.
 
-### Applied decisions
-
-- ISSUE-1: Remove `check_visuals_exist` model_validator from `Card`. Move disk check to
-  `CardRepo._load()` post-append. `portfolio_mode=True` → no error added (renderer handles via
-  placeholder); `portfolio_mode=False` → ValidationError added to errors (card still in cards).
-- ISSUE-2: Simple `if layout not in SUPPORTED_LAYOUTS` guard before dry-run in
-  `cmd_build_portfolio`, keep assert in `build_portfolio()` as defense-in-depth.
-- ISSUE-3: Fix defaults in `pcli.py` (single source); update render_*.py defaults to match.
+## Sonnet Response
+- 적용: Remove check_visuals_exist from Card model; CardRepo post-load visual scan with
+  portfolio_mode flag; layout guard before dry-run; subdirectory default output paths.
+- 무시: Typer enum approach for layout (used simple frozenset check instead) — simpler,
+  fewer moving parts, achieves same validation before dry-run.
