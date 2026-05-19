@@ -235,8 +235,11 @@ class CardRepo:
         return self._warnings  # type: ignore[return-value]
 
     def get(self, slug: str) -> Optional[Card]:
-        """Return card by exact id match only."""
+        """Return card by exact id, or by exact filename stem (e.g. '2026-05-my-card')."""
         for card in self.cards:
             if card.id == slug:
+                return card
+        for card in self.cards:
+            if card._source_path and card._source_path.stem == slug:
                 return card
         return None

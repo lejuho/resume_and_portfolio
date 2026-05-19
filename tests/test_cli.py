@@ -179,6 +179,37 @@ def test_validate_error(card_repo, monkeypatch):
     assert result.exit_code == 1
 
 
+def test_validate_slug_broken_card(card_repo, monkeypatch):
+    """validate <slug> must report errors for a card that failed parsing (ISSUE-3)."""
+    import scripts.pcli as pcli_mod
+
+    monkeypatch.setattr(pcli_mod, "REPO_ROOT", card_repo)
+    broken = textwrap.dedent("""\
+        ---
+        id: broken-card
+        title: Broken
+        type: hackathon
+        period:
+          start: 2026-05-01
+        summary: "x" * 300
+        ---
+    """)
+    (card_repo / "cards" / "2026-05-broken-card.mdx").write_text(broken, encoding="utf-8")
+    # Target the broken card by id slug
+    result = runner.invoke(app, ["validate", "broken-card"])
+    assert result.exit_code == 1
+
+
+def test_show_by_filename_stem(card_repo, monkeypatch):
+    """show must resolve a card by full filename stem (ISSUE-2 regression)."""
+    import scripts.pcli as pcli_mod
+
+    monkeypatch.setattr(pcli_mod, "REPO_ROOT", card_repo)
+    result = runner.invoke(app, ["show", "2026-05-sample-card"])
+    assert result.exit_code == 0
+    assert "Sample Card" in result.output
+
+
 # ─── ls ────────────────────────────────────────────────────────────────────
 
 

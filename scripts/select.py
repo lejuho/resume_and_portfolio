@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import calendar
 from datetime import date
 from typing import Optional
 
@@ -12,6 +13,13 @@ def _parse_ym(ym: str) -> date:
     """Parse YYYY-MM into the first day of that month."""
     year, month = ym.split("-")
     return date(int(year), int(month), 1)
+
+
+def _parse_ym_end(ym: str) -> date:
+    """Parse YYYY-MM into the last day of that month (month-inclusive upper bound)."""
+    year, month = int(ym.split("-")[0]), int(ym.split("-")[1])
+    last_day = calendar.monthrange(year, month)[1]
+    return date(year, month, last_day)
 
 
 def filter_cards(
@@ -58,10 +66,10 @@ def filter_cards(
         since_date = _parse_ym(since)
         result = [c for c in result if c.period.start >= since_date]
 
-    # until filter — card must start on or before first day of until month
+    # until filter — month-inclusive: card must start on or before last day of until month
     if until:
-        until_date = _parse_ym(until)
-        result = [c for c in result if c.period.start <= until_date]
+        until_end = _parse_ym_end(until)
+        result = [c for c in result if c.period.start <= until_end]
 
     # sort
     def _sort_key(c: Card):

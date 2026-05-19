@@ -128,6 +128,17 @@ def cmd_validate(
     if slug:
         card = repo.get(slug)
         if card is None:
+            # Card may have failed validation — scan errors for stem match
+            # A filename stem "2026-05-my-card" ends with the id "my-card"
+            slug_errors = [
+                e for e in errors if e.path.stem == slug or e.path.stem.endswith(f"-{slug}")
+            ]
+            if slug_errors:
+                for e in slug_errors:
+                    err_console.print(
+                        f"[red]ERROR[/red] {e.path.relative_to(REPO_ROOT)}: {e.message}"
+                    )
+                raise typer.Exit(1)
             err_console.print(f"Card not found: {slug!r}")
             raise typer.Exit(1)
         # exact match: error path stem must equal the card's source filename stem

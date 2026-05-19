@@ -239,3 +239,15 @@ def test_private_attrs_accessible(tmp_path):
     card = parse_card(path, tmp_path)
     assert card._source_path == path
     assert isinstance(card._body, str)
+
+
+def test_card_repo_get_by_filename_stem(tmp_path):
+    """get() must return a card when queried by exact filename stem (ISSUE-2 regression)."""
+    cards_dir = tmp_path / "cards"
+    cards_dir.mkdir()
+    _write_card(cards_dir, "2026-05-sample-card.mdx", SAMPLE_MDX)
+    repo = CardRepo(tmp_path)
+    # lookup by full filename stem "2026-05-sample-card"
+    card = repo.get("2026-05-sample-card")
+    assert card is not None
+    assert card.id == "sample-card"

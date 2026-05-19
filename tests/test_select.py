@@ -127,6 +127,27 @@ def test_until_filters():
     assert "alpha" not in ids
 
 
+def test_until_month_inclusive():
+    """--until 2026-03 must include cards starting on any day within March 2026."""
+    cards = [
+        _card("mid-month", start=date(2026, 3, 15)),
+        _card("end-month", start=date(2026, 3, 31)),
+        _card("next-month", start=date(2026, 4, 1)),
+    ]
+    result = filter_cards(cards, until="2026-03")
+    ids = {c.id for c in result}
+    assert "mid-month" in ids
+    assert "end-month" in ids
+    assert "next-month" not in ids
+
+
+def test_until_first_day_of_month_included():
+    """--until 2026-04 must include a card starting on 2026-04-15 (ISSUE-1 regression)."""
+    cards = [_card("apr-card", start=date(2026, 4, 15))]
+    result = filter_cards(cards, until="2026-04")
+    assert len(result) == 1
+
+
 # ─── sort ──────────────────────────────────────────────────────────────────
 
 
