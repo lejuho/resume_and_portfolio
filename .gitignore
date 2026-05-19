@@ -13,3 +13,9 @@ dist/
 build/
 .pytest_cache/
 .ruff_cache/
+.review/
+.claude/
+.codex/
+cards/
+implementation-plan.md
+multi-agent-final/
