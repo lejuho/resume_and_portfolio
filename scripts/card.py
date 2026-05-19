@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 import frontmatter
-from pydantic import BaseModel, Field, PrivateAttr, ValidationInfo, field_validator, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, field_validator
 
 CARD_TYPE = Literal[
     "project",
@@ -97,18 +97,6 @@ class Card(BaseModel):
             raise ValueError(f"summary_ko exceeds 250 chars ({len(v.strip())})")
         return v
 
-    @model_validator(mode="after")
-    def check_visuals_exist(self, info: ValidationInfo) -> "Card":
-        ctx = info.context or {}
-        repo_root: Optional[Path] = ctx.get("repo_root")
-        if repo_root is None:
-            return self
-        for visual in self.visuals:
-            p = repo_root / visual.path
-            if not p.exists():
-                raise ValueError(f"visual path does not exist: {visual.path}")
-        return self
-
     @property
     def effective_narrative(self) -> Optional[str]:
         """narrative frontmatter or markdown body fallback."""
@@ -176,8 +164,9 @@ def parse_card(path: Path, repo_root: Path) -> Card:
 class CardRepo:
     """Loads all cards from a repo root. Validates cross-file constraints lazily."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, portfolio_mode: bool = False):
         self.root = root
+        self.portfolio_mode = portfolio_mode
         self._cards: Optional[list[Card]] = None
         self._errors: Optional[list[ValidationError]] = None
         self._warnings: Optional[dict[str, list[str]]] = None
@@ -207,6 +196,15 @@ class CardRepo:
 
             seen_ids[card.id] = mdx
             cards.append(card)
+
+            # Visual disk check: validate mode → error; portfolio mode → renderer handles it
+            if not self.portfolio_mode:
+                for visual in card.visuals:
+                    vp = self.root / visual.path
+                    if not vp.exists():
+                        errors.append(
+                            ValidationError(mdx, f"visual path does not exist: {visual.path}")
+                        )
 
             w = card.warnings()
             if w:

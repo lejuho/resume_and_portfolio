@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -63,7 +64,7 @@ def build_resume(
     from datetime import datetime
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
-    out_path = out_path or (repo_root / "output" / f"resume-{timestamp}.pdf")
+    out_path = out_path or (repo_root / "output" / "resumes" / f"resume-{timestamp}.pdf")
 
     build_dir = repo_root / ".build"
     build_dir.mkdir(parents=True, exist_ok=True)
@@ -105,10 +106,16 @@ def build_resume(
         )
         sys.exit(2)
 
+    data_path_for_typst = os.path.relpath(json_path, start=template_path.parent).replace(
+        os.sep, "/"
+    )
+
     cmd = [
         typst_bin,
         "compile",
-        f"--input=data-path={json_path}",
+        "--root",
+        str(repo_root),
+        f"--input=data-path={data_path_for_typst}",
         f"--input=lang={lang}",
         str(template_path),
         str(out_path),

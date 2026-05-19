@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import shutil
 import textwrap
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -50,6 +52,9 @@ def card_repo(tmp_path, monkeypatch):
     # .build and output dirs
     (tmp_path / ".build").mkdir()
     (tmp_path / "output").mkdir()
+    (tmp_path / "templates" / "portfolio").mkdir(parents=True)
+    template_src = Path(__file__).parents[1] / "templates" / "portfolio" / "default.py"
+    shutil.copy(template_src, tmp_path / "templates" / "portfolio" / "default.py")
 
     import scripts.pcli as pcli_mod
     import scripts.render_resume as rr_mod
@@ -90,6 +95,11 @@ def test_show_help():
 
 def test_build_resume_help():
     result = runner.invoke(app, ["build", "resume", "--help"])
+    assert result.exit_code == 0
+
+
+def test_build_portfolio_help():
+    result = runner.invoke(app, ["build", "portfolio", "--help"])
     assert result.exit_code == 0
 
 
@@ -298,3 +308,121 @@ def test_build_resume_dry_run(card_repo, monkeypatch):
     assert result.exit_code == 0
     assert "sample-card" in result.output
     assert "Dry run" in result.output
+
+
+# ─── build portfolio ───────────────────────────────────────────────────────
+
+
+def test_build_portfolio_dry_run(card_repo, monkeypatch):
+    import scripts.pcli as pcli_mod
+
+    monkeypatch.setattr(pcli_mod, "REPO_ROOT", card_repo)
+    result = runner.invoke(app, ["build", "portfolio", "--dry-run"])
+    assert result.exit_code == 0
+    assert "sample-card" in result.output
+    assert "portfolio" in result.output
+
+
+def test_build_portfolio_creates_pptx(card_repo, monkeypatch):
+    import scripts.pcli as pcli_mod
+
+    monkeypatch.setattr(pcli_mod, "REPO_ROOT", card_repo)
+    out = card_repo / "output" / "test-portfolio.pptx"
+    result = runner.invoke(app, ["build", "portfolio", "--out", str(out)])
+    assert result.exit_code == 0
+    assert out.exists()
+
+    from pptx import Presentation
+
+    prs = Presentation(str(out))
+    assert len(prs.slides) == 4  # cover, TOC, one card, closing
+    text = "\n".join(
+        shape.text for slide in prs.slides for shape in slide.shapes if hasattr(shape, "text")
+    )
+    assert "Sample Card" in text
+
+
+def test_build_portfolio_missing_visual_does_not_fail(card_repo, monkeypatch):
+    """ISSUE-1: portfolio build succeeds when a card references a non-existent visual."""
+    import scripts.pcli as pcli_mod
+
+    monkeypatch.setattr(pcli_mod, "REPO_ROOT", card_repo)
+    card_with_visual = textwrap.dedent("""\
+        ---
+        id: visual-card
+        title: Visual Card
+        type: project
+        period:
+          start: 2026-01-01
+        status: live
+        summary: "Card that has a visual path pointing to a missing file."
+        narrative: "Long enough narrative for live status check here yes indeed ok indeed yes."
+        evidence:
+          - type: repo
+            url: https://github.com/example/visual
+        visuals:
+          - path: assets/nonexistent.png
+            role: hero
+        ---
+    """)
+    (card_repo / "cards" / "2026-01-visual-card.mdx").write_text(card_with_visual, encoding="utf-8")
+    out = card_repo / "output" / "visual-test.pptx"
+    result = runner.invoke(app, ["build", "portfolio", "--out", str(out)])
+    assert result.exit_code == 0
+    assert out.exists()
+
+
+def test_build_portfolio_unsupported_layout_exits_nonzero(card_repo, monkeypatch):
+    """ISSUE-2: unsupported --layout exits non-zero even with --dry-run."""
+    import scripts.pcli as pcli_mod
+
+    monkeypatch.setattr(pcli_mod, "REPO_ROOT", card_repo)
+    result = runner.invoke(app, ["build", "portfolio", "--layout", "timeline", "--dry-run"])
+    assert result.exit_code != 0
+
+
+def test_build_portfolio_default_output_in_portfolios_subdir(card_repo, monkeypatch):
+    """ISSUE-3: default portfolio output goes to output/portfolios/, not output/ root."""
+    import scripts.pcli as pcli_mod
+
+    monkeypatch.setattr(pcli_mod, "REPO_ROOT", card_repo)
+    result = runner.invoke(app, ["build", "portfolio"])
+    assert result.exit_code == 0
+    portfolios_dir = card_repo / "output" / "portfolios"
+    assert portfolios_dir.exists()
+    assert len(list(portfolios_dir.glob("*.pptx"))) == 1
+
+
+def test_build_portfolio_explicit_cards_bypass_filters(card_repo, monkeypatch):
+    import scripts.pcli as pcli_mod
+
+    monkeypatch.setattr(pcli_mod, "REPO_ROOT", card_repo)
+    archived = textwrap.dedent("""\
+        ---
+        id: archived-card
+        title: Archived Card
+        type: project
+        period:
+          start: 2024-01-01
+        status: archived
+        summary: "Archived but explicitly selected."
+        narrative: "This archived narrative is intentionally long enough for validation."
+        evidence:
+          - type: repo
+            url: https://github.com/example/archived
+        ---
+    """)
+    (card_repo / "cards" / "2024-01-archived-card.mdx").write_text(archived, encoding="utf-8")
+    out = card_repo / "output" / "explicit.pptx"
+    result = runner.invoke(
+        app, ["build", "portfolio", "--cards", "archived-card", "--out", str(out)]
+    )
+    assert result.exit_code == 0
+
+    from pptx import Presentation
+
+    prs = Presentation(str(out))
+    text = "\n".join(
+        shape.text for slide in prs.slides for shape in slide.shapes if hasattr(shape, "text")
+    )
+    assert "Archived Card" in text

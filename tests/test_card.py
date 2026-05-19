@@ -91,23 +91,54 @@ def test_type_invalid():
 
 # ─── visuals disk check ────────────────────────────────────────────────────
 
+_VISUAL_MDX = textwrap.dedent("""\
+    ---
+    id: vis-card
+    title: Visual Card
+    type: project
+    period:
+      start: 2026-05-01
+    summary: "Card with a visual reference."
+    evidence:
+      - type: repo
+        url: https://github.com/example/repo
+    visuals:
+      - path: assets/nonexistent.png
+        role: hero
+    ---
+""")
 
-def test_visuals_path_missing(tmp_path):
-    data = dict(MINIMAL_FRONTMATTER, visuals=[{"path": "assets/nonexistent.png", "role": "hero"}])
-    with pytest.raises(Exception, match="visual path does not exist"):
-        Card.model_validate(data, context={"repo_root": tmp_path})
+
+def test_visuals_path_missing_validate_mode(tmp_path):
+    """CardRepo (validate mode) reports missing visual as error; card still in repo.cards."""
+    cards_dir = tmp_path / "cards"
+    cards_dir.mkdir()
+    (cards_dir / "2026-05-vis-card.mdx").write_text(_VISUAL_MDX, encoding="utf-8")
+    repo = CardRepo(tmp_path)
+    assert any("visual path does not exist" in str(e) for e in repo.errors)
+    assert repo.get("vis-card") is not None
+
+
+def test_visuals_path_missing_portfolio_mode(tmp_path):
+    """CardRepo (portfolio_mode=True) does not error on missing visual; card is included."""
+    cards_dir = tmp_path / "cards"
+    cards_dir.mkdir()
+    (cards_dir / "2026-05-vis-card.mdx").write_text(_VISUAL_MDX, encoding="utf-8")
+    repo = CardRepo(tmp_path, portfolio_mode=True)
+    assert not any("visual path does not exist" in str(e) for e in repo.errors)
+    assert repo.get("vis-card") is not None
 
 
 def test_visuals_path_exists(tmp_path):
     (tmp_path / "assets").mkdir()
     (tmp_path / "assets" / "hero.png").write_bytes(b"")
     data = dict(MINIMAL_FRONTMATTER, visuals=[{"path": "assets/hero.png", "role": "hero"}])
-    card = Card.model_validate(data, context={"repo_root": tmp_path})
+    card = Card.model_validate(data)
     assert len(card.visuals) == 1
 
 
-def test_visuals_no_context():
-    # Without context, disk check is skipped
+def test_visuals_schema_accepts_missing_path():
+    # Card model validates schema only; disk existence is CardRepo's concern
     data = dict(MINIMAL_FRONTMATTER, visuals=[{"path": "assets/missing.png", "role": "hero"}])
     card = Card.model_validate(data)
     assert len(card.visuals) == 1

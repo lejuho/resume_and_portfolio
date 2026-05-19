@@ -343,13 +343,89 @@ def cmd_build_resume(
         return
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
-    out_path = out or (REPO_ROOT / "output" / f"resume-{timestamp}.pdf")
+    out_path = out or (REPO_ROOT / "output" / "resumes" / f"resume-{timestamp}.pdf")
 
     build_resume(
         cards=selected,
         repo_root=REPO_ROOT,
         template_name=template,
         lang=lang,
+        out_path=out_path,
+        verbose=verbose,
+    )
+
+
+@build_app.command("portfolio")
+def cmd_build_portfolio(
+    cards_arg: Optional[str] = typer.Option(None, "--cards", help="Explicit comma-sep card ids"),
+    tags: Optional[str] = typer.Option(None, "--tags", help="Tag filter (OR, comma-separated)"),
+    types: Optional[str] = typer.Option(None, "--types", help="Type filter (comma-separated)"),
+    since: Optional[str] = typer.Option(None, "--since", help="Since YYYY-MM"),
+    until: Optional[str] = typer.Option(None, "--until", help="Until YYYY-MM"),
+    max_items: int = typer.Option(12, "--max-items", help="Max cards to include"),
+    layout: str = typer.Option("one-per-card", "--layout", help="Layout: one-per-card"),
+    include_narrative: bool = typer.Option(
+        True,
+        "--include-narrative/--no-narrative",
+        help="Include narrative excerpts on card slides",
+    ),
+    cover_title: Optional[str] = typer.Option(None, "--cover-title", help="Cover slide title"),
+    cover_subtitle: Optional[str] = typer.Option(None, "--cover-subtitle", help="Cover subtitle"),
+    out: Optional[Path] = typer.Option(None, "--out", help="Output PPTX path"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print selected cards; skip PPTX"),
+    verbose: bool = typer.Option(False, "--verbose", help="Show render steps"),
+):
+    """Build a PPTX portfolio via python-pptx."""
+    from .render_portfolio import build_portfolio
+
+    _SUPPORTED_LAYOUTS = frozenset({"one-per-card"})
+    if layout not in _SUPPORTED_LAYOUTS:
+        err_console.print(
+            f"[red]Unsupported layout:[/red] {layout!r}. "
+            f"Supported: {', '.join(sorted(_SUPPORTED_LAYOUTS))}"
+        )
+        raise typer.Exit(2)
+
+    repo = CardRepo(REPO_ROOT, portfolio_mode=True)
+    if repo.errors:
+        for e in repo.errors:
+            err_console.print(f"[red]ERROR[/red] {e}")
+        raise typer.Exit(1)
+
+    explicit_ids = [s.strip() for s in cards_arg.split(",")] if cards_arg else None
+
+    selected = filter_cards(
+        repo.cards,
+        types=types,
+        tags=tags,
+        since=since,
+        until=until,
+        status="live",
+        sort="date-desc",
+        max_items=max_items,
+        explicit_ids=explicit_ids,
+    )
+
+    if not selected:
+        console.print("[yellow]No cards selected. Check filters or use --cards.[/yellow]")
+        raise typer.Exit(0)
+
+    if dry_run:
+        console.print(f"[bold]Dry run:[/bold] {len(selected)} card(s) selected for portfolio\n")
+        for card in selected:
+            console.print(f"  • [cyan]{card.id}[/cyan]  {card.title}  ({card.type})")
+        return
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M")
+    out_path = out or (REPO_ROOT / "output" / "portfolios" / f"portfolio-{timestamp}.pptx")
+
+    build_portfolio(
+        cards=selected,
+        repo_root=REPO_ROOT,
+        layout=layout,
+        include_narrative=include_narrative,
+        cover_title=cover_title,
+        cover_subtitle=cover_subtitle,
         out_path=out_path,
         verbose=verbose,
     )
