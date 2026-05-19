@@ -1,0 +1,28 @@
+basics:
+  name: 이주호 (Lejuho)
+  label: Research Lead @ NinjaLabs · Founder @ ChainLens
+  email: your-email@example.com
+  phone: "+82-10-0000-0000"
+  location: Goyang-si, Korea
+  url: https://github.com/lejuho
+  summary_en: |
+    CS student at Hongik (graduating 2027 Feb), research lead at NinjaLabs,
+    founder of ChainLens — verified onchain analytics API marketplace.
+  summary_ko: |
+    홍익대 컴공 (2027년 2월 졸업), NinjaLabs 리서치 리드,
+    ChainLens (검증 가능한 온체인 분석 API 마켓플레이스) 창업자.
+  profiles:
+    - network: GitHub
+      username: lejuho
+      url: https://github.com/lejuho
+    - network: X
+      username: lejuho
+      url: https://x.com/lejuho
+
+education:
+  - institution: Hongik University
+    area: Computer Science
+    studyType: Bachelor
+    startDate: 2021-03
+    endDate: 2027-02
+    location: Seoul, Korea
