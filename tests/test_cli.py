@@ -210,6 +210,42 @@ def test_show_by_filename_stem(card_repo, monkeypatch):
     assert "Sample Card" in result.output
 
 
+def test_validate_slug_no_false_positive(card_repo, monkeypatch):
+    """validate <slug> must NOT report errors for a different card sharing slug suffix."""
+    import scripts.pcli as pcli_mod
+
+    monkeypatch.setattr(pcli_mod, "REPO_ROOT", card_repo)
+    # "other-broken-card" shares the "-card" suffix with "broken-card"
+    broken = textwrap.dedent("""\
+        ---
+        id: broken-card
+        title: Broken
+        type: hackathon
+        period:
+          start: 2026-05-01
+        summary: "x" * 300
+        ---
+    """)
+    other_broken = textwrap.dedent("""\
+        ---
+        id: other-broken-card
+        title: Other Broken
+        type: hackathon
+        period:
+          start: 2026-04-01
+        summary: "x" * 300
+        ---
+    """)
+    (card_repo / "cards" / "2026-05-broken-card.mdx").write_text(broken, encoding="utf-8")
+    (card_repo / "cards" / "2026-04-other-broken-card.mdx").write_text(
+        other_broken, encoding="utf-8"
+    )
+    # validate "broken-card" must only report broken-card, NOT other-broken-card
+    result = runner.invoke(app, ["validate", "broken-card"])
+    assert result.exit_code == 1
+    assert "other-broken-card" not in result.output
+
+
 # ─── ls ────────────────────────────────────────────────────────────────────
 
 

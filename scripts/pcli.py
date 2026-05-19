@@ -12,7 +12,7 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 
-from .card import CardRepo
+from .card import CardRepo, _filename_slug
 from .select import filter_cards
 
 app = typer.Typer(
@@ -130,9 +130,7 @@ def cmd_validate(
         if card is None:
             # Card may have failed validation — scan errors for stem match
             # A filename stem "2026-05-my-card" ends with the id "my-card"
-            slug_errors = [
-                e for e in errors if e.path.stem == slug or e.path.stem.endswith(f"-{slug}")
-            ]
+            slug_errors = [e for e in errors if _filename_slug(e.path) == slug]
             if slug_errors:
                 for e in slug_errors:
                     err_console.print(
