@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import scripts.dashboard as dash_mod
-from scripts.dashboard import app
+from scripts.dashboard import _parse_output_path, app
 
 SAMPLE_MDX = textwrap.dedent("""\
     ---
@@ -187,3 +187,118 @@ def test_no_mdx_mutated_during_build(client, repo):
             content_type="application/json",
         )
     assert card_path.read_text(encoding="utf-8") == original
+
+
+# ─── build result schema ──────────────────────────────────────────────────────
+
+
+def test_build_result_schema_has_required_fields(client):
+    with patch("scripts.dashboard.subprocess.run", return_value=_mock_ok()):
+        res = client.post(
+            "/api/build",
+            data=json.dumps({"target": "resume", "dry_run": True, "selected_ids": ["sample-card"]}),
+            content_type="application/json",
+        )
+    d = res.get_json()
+    required = (
+        "ok",
+        "exit_code",
+        "stdout",
+        "stderr",
+        "command",
+        "output_path",
+        "target",
+        "dry_run",
+        "selected_ids",
+    )
+    for key in required:
+        assert key in d, f"missing key: {key}"
+
+
+def test_build_result_echoes_target_and_dry_run(client):
+    with patch("scripts.dashboard.subprocess.run", return_value=_mock_ok()):
+        res = client.post(
+            "/api/build",
+            data=json.dumps({"target": "portfolio", "dry_run": False, "selected_ids": []}),
+            content_type="application/json",
+        )
+    d = res.get_json()
+    assert d["target"] == "portfolio"
+    assert d["dry_run"] is False
+
+
+def test_build_result_echoes_selected_ids_order(client):
+    ids = ["card-b", "card-a", "card-c"]
+    with patch("scripts.dashboard.subprocess.run", return_value=_mock_ok()):
+        res = client.post(
+            "/api/build",
+            data=json.dumps({"target": "resume", "dry_run": True, "selected_ids": ids}),
+            content_type="application/json",
+        )
+    d = res.get_json()
+    assert d["selected_ids"] == ids
+
+
+def test_build_cards_flag_preserves_order(client):
+    ids = ["card-b", "card-a", "card-c"]
+    with patch("scripts.dashboard.subprocess.run", return_value=_mock_ok()) as mock_run:
+        client.post(
+            "/api/build",
+            data=json.dumps({"target": "resume", "dry_run": True, "selected_ids": ids}),
+            content_type="application/json",
+        )
+    cmd = mock_run.call_args[0][0]
+    cards_arg = cmd[cmd.index("--cards") + 1]
+    assert cards_arg == "card-b,card-a,card-c"
+
+
+# ─── output path parsing ──────────────────────────────────────────────────────
+
+
+def test_parse_output_path_resume():
+    stdout = "Built 1 card(s).\nWrote output/resumes/2026-05-resume.pdf\nDone.\n"
+    assert _parse_output_path(stdout) == "output/resumes/2026-05-resume.pdf"
+
+
+def test_parse_output_path_portfolio():
+    stdout = "Portfolio built → output/portfolios/portfolio-2026-05.pptx\n"
+    assert _parse_output_path(stdout) == "output/portfolios/portfolio-2026-05.pptx"
+
+
+def test_parse_output_path_windows_separators():
+    stdout = r"Wrote output\resumes\2026-05-resume.pdf" + "\n"
+    result = _parse_output_path(stdout)
+    assert result is not None
+    assert "resumes" in result
+    assert result.endswith(".pdf")
+
+
+def test_parse_output_path_dry_run_returns_none():
+    stdout = "Dry run: 2 card(s) selected\nNo files written.\n"
+    assert _parse_output_path(stdout) is None
+
+
+def test_parse_output_path_empty_returns_none():
+    assert _parse_output_path("") is None
+
+
+def test_build_output_path_none_for_dry_run(client):
+    stdout = "Dry run: 1 card(s) selected\n"
+    with patch("scripts.dashboard.subprocess.run", return_value=_mock_ok(stdout=stdout)):
+        res = client.post(
+            "/api/build",
+            data=json.dumps({"target": "resume", "dry_run": True, "selected_ids": []}),
+            content_type="application/json",
+        )
+    assert res.get_json()["output_path"] is None
+
+
+def test_build_output_path_parsed_for_real_build(client):
+    stdout = "Wrote output/resumes/cv.pdf\n"
+    with patch("scripts.dashboard.subprocess.run", return_value=_mock_ok(stdout=stdout)):
+        res = client.post(
+            "/api/build",
+            data=json.dumps({"target": "resume", "dry_run": False, "selected_ids": []}),
+            content_type="application/json",
+        )
+    assert res.get_json()["output_path"] == "output/resumes/cv.pdf"
