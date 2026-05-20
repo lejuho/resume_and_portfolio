@@ -1,0 +1,16 @@
+Senior Blockchain Engineer
+
+We are looking for an experienced blockchain engineer to join our team building
+decentralized infrastructure for Southeast Asian financial markets.
+
+Requirements:
+- 3+ years Solidity / EVM smart contract development
+- Experience with DeFi protocols (AMMs, lending, stablecoins)
+- Strong understanding of Solana or Cosmos ecosystem is a plus
+- Proven track record shipping production Web3 products
+- Korean language proficiency preferred for regional work
+
+Responsibilities:
+- Design and audit smart contracts
+- Build on-chain integrations for our partner protocols
+- Collaborate with the product team on tokenomics design

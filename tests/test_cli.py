@@ -426,3 +426,143 @@ def test_build_portfolio_explicit_cards_bypass_filters(card_repo, monkeypatch):
         shape.text for slide in prs.slides for shape in slide.shapes if hasattr(shape, "text")
     )
     assert "Archived Card" in text
+
+
+# ─── llm commands ─────────────────────────────────────────────────────────
+
+
+def test_llm_tailor_help():
+    result = runner.invoke(app, ["llm", "tailor", "--help"])
+    assert result.exit_code == 0
+
+
+def test_llm_suggest_help():
+    result = runner.invoke(app, ["llm", "suggest", "--help"])
+    assert result.exit_code == 0
+
+
+def test_build_resume_dry_run_with_jd(card_repo, monkeypatch, tmp_path):
+    """--jd + --dry-run shows LLM intent without calling the LLM."""
+    import scripts.pcli as pcli_mod
+
+    monkeypatch.setattr(pcli_mod, "REPO_ROOT", card_repo)
+    jd_file = tmp_path / "jd.txt"
+    jd_file.write_text("Senior engineer needed.", encoding="utf-8")
+    result = runner.invoke(
+        app, ["build", "resume", "--jd", str(jd_file), "--tone", "formal", "--dry-run"]
+    )
+    assert result.exit_code == 0
+    assert "jd=" in result.output or "Dry run" in result.output
+
+
+def test_llm_tailor_with_fake_client(card_repo, monkeypatch, tmp_path):
+    """llm tailor prints score + rewrite using a fake client."""
+    import json
+
+    import scripts.pcli as pcli_mod
+
+    monkeypatch.setattr(pcli_mod, "REPO_ROOT", card_repo)
+
+    class _FakeContent:
+        def __init__(self, text):
+            self.text = text
+
+    class _FakeMsg:
+        def __init__(self, text):
+            self.content = [_FakeContent(text)]
+
+    responses = [
+        json.dumps({"score": 0.9, "reason": "great match"}),
+        "Rewritten summary for formal tone.",
+    ]
+    resp_iter = iter(responses)
+
+    class _FakeMsgs:
+        def create(self, **kwargs):
+            return _FakeMsg(next(resp_iter))
+
+    class _FakeClient:
+        messages = _FakeMsgs()
+
+    import scripts.llm as llm_mod
+
+    monkeypatch.setattr(llm_mod, "_build_client", lambda: _FakeClient())
+    monkeypatch.setattr(pcli_mod, "REPO_ROOT", card_repo)
+
+    jd_file = tmp_path / "jd.txt"
+    jd_file.write_text("Senior engineer.", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        [
+            "llm",
+            "tailor",
+            "--cards",
+            "sample-card",
+            "--jd",
+            str(jd_file),
+            "--no-cache",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "sample-card" in result.output
+    assert "0.90" in result.output or "0.9" in result.output
+
+
+def test_llm_suggest_with_fake_client(card_repo, monkeypatch, tmp_path):
+    """llm suggest prints YAML frontmatter from fake LLM response."""
+    import json
+
+    import scripts.pcli as pcli_mod
+
+    monkeypatch.setattr(pcli_mod, "REPO_ROOT", card_repo)
+
+    fake_response = json.dumps(
+        {
+            "title": "Bridge Contract",
+            "type": "project",
+            "summary": "Built a cross-chain bridge.",
+            "tags_domain": ["web3"],
+            "tags_skill": ["solidity"],
+        }
+    )
+
+    class _FakeContent:
+        def __init__(self, text):
+            self.text = text
+
+    class _FakeMsg:
+        def __init__(self, text):
+            self.content = [_FakeContent(text)]
+
+    class _FakeMsgs:
+        def create(self, **kwargs):
+            return _FakeMsg(fake_response)
+
+    class _FakeClient:
+        messages = _FakeMsgs()
+
+    import scripts.llm as llm_mod
+
+    monkeypatch.setattr(llm_mod, "_build_client", lambda: _FakeClient())
+
+    notes_file = tmp_path / "notes.txt"
+    notes_file.write_text("Built a cross-chain bridge between ETH and Solana.", encoding="utf-8")
+    result = runner.invoke(app, ["llm", "suggest", "--from", str(notes_file), "--no-cache"])
+    assert result.exit_code == 0
+    assert "Bridge Contract" in result.output
+
+
+def test_llm_tailor_missing_api_key(card_repo, monkeypatch, tmp_path):
+    """llm tailor exits 2 when no API key and no cache hit."""
+    import scripts.pcli as pcli_mod
+
+    monkeypatch.setattr(pcli_mod, "REPO_ROOT", card_repo)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    jd_file = tmp_path / "jd.txt"
+    jd_file.write_text("Engineer.", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        ["llm", "tailor", "--cards", "sample-card", "--jd", str(jd_file), "--no-cache"],
+    )
+    assert result.exit_code == 2

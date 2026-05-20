@@ -24,6 +24,10 @@ build_app = typer.Typer(help="Build resume or portfolio artifacts.", no_args_is_
 app.add_typer(build_app, name="build")
 preset_app = typer.Typer(help="Manage build presets.", no_args_is_help=True)
 app.add_typer(preset_app, name="preset")
+llm_app = typer.Typer(
+    help="LLM tailoring — score, rewrite, and suggest cards.", no_args_is_help=True
+)
+app.add_typer(llm_app, name="llm")
 
 console = Console()
 err_console = Console(stderr=True, style="bold red")
@@ -306,6 +310,16 @@ def cmd_build_resume(
     until: Optional[str] = typer.Option(None, "--until", help="Until YYYY-MM"),
     max_items: Optional[int] = typer.Option(None, "--max-items", help="Max cards (default: 12)"),
     lang: Optional[str] = typer.Option(None, "--lang", help="Language: en or ko (default: en)"),
+    jd: Optional[str] = typer.Option(
+        None, "--jd", help="Job description file path or '-' for stdin"
+    ),
+    tone: Optional[str] = typer.Option(
+        None, "--tone", help="Rewrite tone: formal|founder|technical"
+    ),
+    show_llm_diff: bool = typer.Option(
+        False, "--show-llm-diff", help="Print before/after summary rewrites"
+    ),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Force LLM call, bypass cache"),
     out: Optional[Path] = typer.Option(None, "--out", help="Output PDF path"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print selected cards; skip Typst"),
     verbose: bool = typer.Option(False, "--verbose", help="Show render steps"),
@@ -348,6 +362,17 @@ def cmd_build_resume(
             err_console.print(f"[red]ERROR[/red] {e}")
         raise typer.Exit(1)
 
+    # JD scoring: filter without max_items, score+sort, then slice
+    jd_text: Optional[str] = None
+    if jd:
+        from .llm import LLMError, read_jd
+
+        try:
+            jd_text = read_jd(jd)
+        except LLMError as exc:
+            err_console.print(f"[red]JD error:[/red] {exc}")
+            raise typer.Exit(1)
+
     selected = filter_cards(
         repo.cards,
         types=types,
@@ -356,7 +381,7 @@ def cmd_build_resume(
         until=until,
         status="live",
         sort="date-desc",
-        max_items=max_items,
+        max_items=None if jd_text else max_items,
         explicit_ids=explicit_ids,
         exclude_ids=exclude_ids or None,
     )
@@ -365,13 +390,67 @@ def cmd_build_resume(
         console.print("[yellow]No cards selected. Check filters or use --cards.[/yellow]")
         raise typer.Exit(0)
 
+    llm_meta: dict = {}
+
+    if jd_text and not dry_run:
+        from .llm import LLMError, score_cards
+
+        try:
+            scored = score_cards(
+                selected,
+                jd_text,
+                lang=lang,
+                cache_dir=REPO_ROOT / ".cache" / "llm",
+                no_cache=no_cache,
+            )
+        except LLMError as exc:
+            console.print(f"[yellow]WARN[/yellow] LLM scoring failed, using unscored order: {exc}")
+            scored = [(c, 0.0, "") for c in selected]
+        selected = [c for c, _, _ in scored][:max_items]
+        llm_meta["scores"] = {c.id: {"score": s, "reason": r} for c, s, r in scored}
+
+    elif jd_text and dry_run:
+        console.print(f"[dim]LLM: jd={jd!r} tone={tone!r} (scoring skipped in dry-run)[/dim]")
+        selected = selected[:max_items]
+
+    # Summary rewrites (in-memory only, never mutates Card)
+    if (jd_text or tone) and not dry_run:
+        from .llm import LLMError, rewrite_summary
+
+        rewritten_cards = []
+        rewrites: dict = {}
+        effective_tone = tone or "formal"
+        for card in selected:
+            try:
+                new_summary = rewrite_summary(
+                    card,
+                    jd_text,
+                    tone=effective_tone,
+                    lang=lang,
+                    cache_dir=REPO_ROOT / ".cache" / "llm",
+                    no_cache=no_cache,
+                )
+                if show_llm_diff or verbose:
+                    original = card.summary_ko if lang == "ko" and card.summary_ko else card.summary
+                    console.print(f"[dim]rewrite {card.id}:[/dim]")
+                    console.print(f"  before: {original}")
+                    console.print(f"  after:  {new_summary}")
+                rewrites[card.id] = new_summary
+                rewritten_cards.append(card.model_copy(update={"summary": new_summary}))
+            except LLMError as exc:
+                console.print(f"[yellow]WARN[/yellow] rewrite failed for {card.id}: {exc}")
+                rewritten_cards.append(card)
+        selected = rewritten_cards
+        llm_meta["rewrites"] = rewrites
+
     # bok template requires summary_ko — validate before build, warn on dry-run
     missing_ko = [c.id for c in selected if template == "bok" and not c.summary_ko]
 
     if dry_run:
+        llm_hint = f" [dim]jd={jd!r}[/dim]" if jd else ""
         console.print(
             f"[bold]Dry run:[/bold] {len(selected)} card(s) selected  "
-            f"[dim]template={template} lang={lang}[/dim]\n"
+            f"[dim]template={template} lang={lang}[/dim]{llm_hint}\n"
         )
         for card in selected:
             console.print(f"  • [cyan]{card.id}[/cyan]  {card.title}  ({card.type})")
@@ -403,6 +482,17 @@ def cmd_build_resume(
         },
         REPO_ROOT / ".cache",
     )
+
+    if llm_meta:
+        import json as _json
+
+        build_dir = REPO_ROOT / ".build"
+        build_dir.mkdir(exist_ok=True)
+        meta_path = build_dir / "resume-data.json"
+        meta_path.write_text(
+            _json.dumps({"meta": {"llm": llm_meta}}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     build_resume(
         cards=selected,
@@ -568,6 +658,10 @@ def cmd_preset_run(
             until=None,
             max_items=None,
             lang=None,
+            jd=None,
+            tone=None,
+            show_llm_diff=False,
+            no_cache=False,
             out=out,
             dry_run=dry_run,
             verbose=verbose,
@@ -607,6 +701,83 @@ def cmd_preset_save(
         err_console.print(f"[red]Preset save error:[/red] {exc}")
         raise typer.Exit(1)
     console.print(f"[green]Preset saved:[/green] {dest.relative_to(REPO_ROOT)}")
+
+
+# ---------------------------------------------------------------------------
+# pcli llm
+# ---------------------------------------------------------------------------
+
+
+@llm_app.command("tailor")
+def cmd_llm_tailor(
+    cards_arg: str = typer.Option(..., "--cards", help="Comma-separated card ids"),
+    jd: str = typer.Option(..., "--jd", help="Job description file path or '-' for stdin"),
+    tone: str = typer.Option("formal", "--tone", help="Rewrite tone: formal|founder|technical"),
+    lang: str = typer.Option("en", "--lang", help="Language: en or ko"),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Force LLM call, bypass cache"),
+):
+    """Score and rewrite selected cards against a job description."""
+    from .llm import LLMError, read_jd, rewrite_summary, score_cards
+
+    try:
+        jd_text = read_jd(jd)
+    except LLMError as exc:
+        err_console.print(f"[red]JD error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    repo = _repo()
+    ids = {s.strip() for s in cards_arg.split(",")}
+    cards = [c for c in repo.cards if c.id in ids]
+    missing = ids - {c.id for c in cards}
+    if missing:
+        err_console.print(f"[red]Cards not found:[/red] {', '.join(sorted(missing))}")
+        raise typer.Exit(1)
+
+    cache_dir = REPO_ROOT / ".cache" / "llm"
+    try:
+        scored = score_cards(cards, jd_text, lang=lang, cache_dir=cache_dir, no_cache=no_cache)
+    except LLMError as exc:
+        err_console.print(f"[red]LLM error:[/red] {exc}")
+        raise typer.Exit(2)
+
+    for card, score, reason in scored:
+        try:
+            new_summary = rewrite_summary(
+                card, jd_text, tone=tone, lang=lang, cache_dir=cache_dir, no_cache=no_cache
+            )
+        except LLMError as exc:
+            new_summary = f"[rewrite failed: {exc}]"
+        original = card.summary_ko if lang == "ko" and card.summary_ko else card.summary
+        console.print(f"\n[bold cyan]{card.id}[/bold cyan]  score={score:.2f}  {reason}")
+        console.print(f"  [dim]before:[/dim] {original}")
+        console.print(f"  [green]after: [/green] {new_summary}")
+
+
+@llm_app.command("suggest")
+def cmd_llm_suggest(
+    from_file: str = typer.Option(..., "--from", help="Text file path or '-' for stdin"),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Force LLM call, bypass cache"),
+):
+    """Suggest card frontmatter YAML from raw text (notes, README, etc.)."""
+    import yaml as _yaml
+
+    from .llm import LLMError, read_jd, suggest_card_from_text
+
+    try:
+        text = read_jd(from_file)
+    except LLMError as exc:
+        err_console.print(f"[red]File error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    try:
+        data = suggest_card_from_text(
+            text, cache_dir=REPO_ROOT / ".cache" / "llm", no_cache=no_cache
+        )
+    except LLMError as exc:
+        err_console.print(f"[red]LLM error:[/red] {exc}")
+        raise typer.Exit(2)
+
+    console.print(_yaml.dump(data, allow_unicode=True, sort_keys=False), end="")
 
 
 if __name__ == "__main__":
