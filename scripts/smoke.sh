@@ -12,23 +12,23 @@ step() {
     printf '\n==> %s\n' "$label"
     if "$@"; then
         printf '    PASS\n'
-        ((pass++))
+        pass=$((pass + 1))
     else
         printf '    FAIL\n'
-        ((fail++))
+        fail=$((fail + 1))
     fi
 }
 
 skip_step() {
     local label="$1" reason="$2"
     printf '\n==> %s\n    SKIP: %s\n' "$label" "$reason"
-    ((skip++))
+    skip=$((skip + 1))
 }
 
 if command -v typst &>/dev/null; then
     TYPST=true
 else
-    printf '\n[INFO] typst not found — full PDF/PPTX builds will be skipped.\n'
+    printf '\n[INFO] typst not found — resume PDF build will be skipped.\n'
     TYPST=false
 fi
 
@@ -55,10 +55,10 @@ step "build portfolio --tags web3" uv run pcli build portfolio --tags web3
 printf '\n==> git status (no staged artifacts)\n'
 if git diff --cached --name-only | grep -qE '\.(pdf|pptx)$'; then
     printf '    FAIL: staged artifacts found\n'
-    ((fail++))
+    fail=$((fail + 1))
 else
     printf '    PASS\n'
-    ((pass++))
+    pass=$((pass + 1))
 fi
 
 printf '\n=== Results: %d passed, %d failed, %d skipped ===\n' "$pass" "$fail" "$skip"

@@ -30,7 +30,7 @@ function SkipStep($label, $reason) {
 # Check Typst
 $typstAvailable = $null -ne (Get-Command typst -ErrorAction SilentlyContinue)
 if (-not $typstAvailable) {
-    Write-Host "`n[INFO] typst not found — full PDF/PPTX builds will be skipped." -ForegroundColor Yellow
+    Write-Host "`n[INFO] typst not found — resume PDF build will be skipped." -ForegroundColor Yellow
 }
 
 Write-Host "`n=== pcli v1 Smoke Test ===" -ForegroundColor White
