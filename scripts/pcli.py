@@ -34,6 +34,9 @@ err_console = Console(stderr=True, style="bold red")
 
 REPO_ROOT = Path(__file__).parent.parent
 
+VALID_TONES = frozenset({"formal", "founder", "technical"})
+VALID_LANGS = frozenset({"en", "ko"})
+
 
 def _repo() -> CardRepo:
     return CardRepo(REPO_ROOT)
@@ -355,6 +358,13 @@ def cmd_build_resume(
         lang = lang or "en"
         max_items = max_items if max_items is not None else 12
         explicit_ids = [s.strip() for s in cards_arg.split(",")] if cards_arg else None
+
+    if lang not in VALID_LANGS:
+        raise typer.BadParameter(f"must be one of {sorted(VALID_LANGS)}", param_hint="'--lang'")
+    if tone and tone not in VALID_TONES:
+        raise typer.BadParameter(f"must be one of {sorted(VALID_TONES)}", param_hint="'--tone'")
+    if max_items is not None and max_items < 1:
+        raise typer.BadParameter("must be a positive integer", param_hint="'--max-items'")
 
     repo = _repo()
     if repo.errors:
@@ -707,6 +717,11 @@ def cmd_llm_tailor(
     no_cache: bool = typer.Option(False, "--no-cache", help="Force LLM call, bypass cache"),
 ):
     """Score and rewrite selected cards against a job description."""
+    if lang not in VALID_LANGS:
+        raise typer.BadParameter(f"must be one of {sorted(VALID_LANGS)}", param_hint="'--lang'")
+    if tone not in VALID_TONES:
+        raise typer.BadParameter(f"must be one of {sorted(VALID_TONES)}", param_hint="'--tone'")
+
     from .llm import LLMError, read_jd, rewrite_summary, score_cards
 
     try:
