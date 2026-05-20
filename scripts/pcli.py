@@ -483,17 +483,6 @@ def cmd_build_resume(
         REPO_ROOT / ".cache",
     )
 
-    if llm_meta:
-        import json as _json
-
-        build_dir = REPO_ROOT / ".build"
-        build_dir.mkdir(exist_ok=True)
-        meta_path = build_dir / "resume-data.json"
-        meta_path.write_text(
-            _json.dumps({"meta": {"llm": llm_meta}}, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-
     build_resume(
         cards=selected,
         repo_root=REPO_ROOT,
@@ -501,6 +490,7 @@ def cmd_build_resume(
         lang=lang,
         out_path=out_path,
         verbose=verbose,
+        extra_meta={"llm": llm_meta} if llm_meta else None,
     )
 
 

@@ -58,6 +58,7 @@ def build_resume(
     lang: str = "en",
     out_path: Optional[Path] = None,
     verbose: bool = False,
+    extra_meta: Optional[dict] = None,
 ) -> None:
     profile = _load_profile(repo_root)
 
@@ -70,16 +71,20 @@ def build_resume(
     build_dir.mkdir(parents=True, exist_ok=True)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    meta = {
+        "generated_at": timestamp,
+        "template": template_name,
+        "lang": lang,
+        "card_count": len(cards),
+    }
+    if extra_meta:
+        meta = {**meta, **extra_meta}
+
     context = {
         "basics": profile.get("basics", {}),
         "education": profile.get("education", []),
         "cards": [_card_to_dict(c, lang) for c in cards],
-        "meta": {
-            "generated_at": timestamp,
-            "template": template_name,
-            "lang": lang,
-            "card_count": len(cards),
-        },
+        "meta": meta,
     }
 
     json_path = build_dir / "resume-data.json"

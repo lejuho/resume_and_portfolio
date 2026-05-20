@@ -566,3 +566,79 @@ def test_llm_tailor_missing_api_key(card_repo, monkeypatch, tmp_path):
         ["llm", "tailor", "--cards", "sample-card", "--jd", str(jd_file), "--no-cache"],
     )
     assert result.exit_code == 2
+
+
+def test_build_resume_llm_meta_persisted_in_resume_data_json(card_repo, monkeypatch, tmp_path):
+    """After LLM resume build, .build/resume-data.json must contain meta.llm."""
+    import json
+
+    import scripts.llm as llm_mod
+    import scripts.pcli as pcli_mod
+
+    monkeypatch.setattr(pcli_mod, "REPO_ROOT", card_repo)
+
+    # Stub default.typ so template existence check passes
+    (card_repo / "templates" / "resume").mkdir(parents=True, exist_ok=True)
+    (card_repo / "templates" / "resume" / "default.typ").write_text(
+        "#let data = none", encoding="utf-8"
+    )
+
+    # Fake LLM client: score response then rewrite response
+    score_resp = json.dumps({"score": 0.85, "reason": "good match"})
+    rewrite_resp = "LLM-rewritten summary."
+
+    class _FC:
+        def __init__(self, text):
+            self.text = text
+
+    class _FM:
+        def __init__(self, text):
+            self.content = [_FC(text)]
+
+    responses = iter([score_resp, rewrite_resp])
+
+    class _FakeClient:
+        class messages:
+            @staticmethod
+            def create(**kwargs):
+                return _FM(next(responses))
+
+    monkeypatch.setattr(llm_mod, "_build_client", lambda: _FakeClient())
+
+    # Fake typst so build_resume doesn't fail on missing binary
+    import shutil
+
+    monkeypatch.setattr(shutil, "which", lambda _: "/fake/typst")
+
+    import subprocess
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **kw: type("R", (), {"stdout": "", "stderr": "", "returncode": 0})(),
+    )
+
+    jd_file = tmp_path / "jd.txt"
+    jd_file.write_text("Blockchain engineer needed.", encoding="utf-8")
+    out = card_repo / "output" / "llm-test.pdf"
+
+    result = runner.invoke(
+        app,
+        [
+            "build",
+            "resume",
+            "--jd",
+            str(jd_file),
+            "--tone",
+            "formal",
+            "--out",
+            str(out),
+            "--no-cache",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    data = json.loads((card_repo / ".build" / "resume-data.json").read_text(encoding="utf-8"))
+    assert "llm" in data["meta"]
+    assert "scores" in data["meta"]["llm"]
+    assert "rewrites" in data["meta"]["llm"]
