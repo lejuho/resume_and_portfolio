@@ -46,11 +46,11 @@ step "build portfolio --dry-run"    uv run pcli build portfolio --dry-run
 
 if $TYPST; then
     step "build resume --preset bok-interview" uv run pcli build resume --preset bok-interview
-    step "build portfolio --tags web3"         uv run pcli build portfolio --tags web3
 else
     skip_step "build resume --preset bok-interview" "typst not installed"
-    skip_step "build portfolio --tags web3"         "typst not installed"
 fi
+
+step "build portfolio --tags web3" uv run pcli build portfolio --tags web3
 
 printf '\n==> git status (no staged artifacts)\n'
 if git diff --cached --name-only | grep -qE '\.(pdf|pptx)$'; then

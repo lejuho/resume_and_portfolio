@@ -154,8 +154,12 @@ uv run pcli validate
 uv run pcli build resume --dry-run
 uv run pcli build portfolio --dry-run
 uv run pcli build resume --preset bok-interview   # Typst 필요
-uv run pcli build portfolio --tags web3           # Typst 필요
+uv run pcli build portfolio --tags web3
 ```
+
+LLM tailoring 검증 (acceptance criterion 5):
+- `tests/fixtures/fake-jd.txt`를 사용해 dry-run으로 카드 선별 확인 가능 (`--dry-run` 추가)
+- 실제 rewrite + PDF 반영 확인은 `ANTHROPIC_API_KEY` 필요
 
 ### 출력 경로 및 Git 추적 정책
 

@@ -47,11 +47,11 @@ Step "build portfolio --dry-run"       "uv run pcli build portfolio --dry-run"
 
 if ($typstAvailable) {
     Step "build resume --preset bok-interview" "uv run pcli build resume --preset bok-interview"
-    Step "build portfolio --tags web3"         "uv run pcli build portfolio --tags web3"
 } else {
     SkipStep "build resume --preset bok-interview" "typst not installed"
-    SkipStep "build portfolio --tags web3"         "typst not installed"
 }
+
+Step "build portfolio --tags web3" "uv run pcli build portfolio --tags web3"
 
 # Verify no artifacts staged
 Write-Host "`n==> git status (no staged artifacts)" -ForegroundColor Cyan
