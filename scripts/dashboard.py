@@ -21,8 +21,19 @@ app = Flask(__name__, template_folder="templates")
 
 def _parse_output_path(stdout: str) -> str | None:
     """Return the first output file path found in build stdout, or None."""
-    m = _OUTPUT_PATH_RE.search(stdout.replace("\r\n", "\n").replace("\r", "\n"))
-    return m.group(0) if m else None
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        lowered = line.lower()
+        is_output = "resumes" in lowered or "portfolios" in lowered
+        if is_output and lowered.endswith((".pdf", ".pptx")):
+            m = _OUTPUT_PATH_RE.search(line)
+            if m:
+                return m.group(0)
+            parts = line.split(": ", 1)
+            return parts[-1].strip()
+    return None
 
 
 def _card_to_dict(card: Any) -> dict:

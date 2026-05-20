@@ -302,3 +302,29 @@ def test_build_output_path_parsed_for_real_build(client):
             content_type="application/json",
         )
     assert res.get_json()["output_path"] == "output/resumes/cv.pdf"
+
+
+def test_parse_output_path_labeled_with_spaces():
+    stdout = r"Resume written: C:\some dir\output\resumes\resume with space.pdf" + "\n"
+    result = _parse_output_path(stdout)
+    assert result is not None
+    assert result.endswith("resume with space.pdf")
+    assert "Resume written" not in result
+
+
+def test_parse_output_path_path_on_next_line():
+    stdout = "Portfolio written:\nC:\\output\\portfolios\\portfolio with space.pptx\n"
+    result = _parse_output_path(stdout)
+    assert result is not None
+    assert result.endswith(".pptx")
+    assert "portfolios" in result.lower()
+
+
+def test_parse_output_path_relative_with_spaces():
+    result = _parse_output_path("output/portfolios/my deck.pptx\n")
+    assert result == "output/portfolios/my deck.pptx"
+
+
+def test_parse_output_path_no_false_positive_on_error_line():
+    stdout = "Error: expected output in resumes folder but file.pdf was missing\n"
+    assert _parse_output_path(stdout) is None
