@@ -20,3 +20,6 @@ build/
 cards/
 implementation-plan.md
 multi-agent-final/
+.claude-flow/
+.mcp.json
+CLAUDE.md

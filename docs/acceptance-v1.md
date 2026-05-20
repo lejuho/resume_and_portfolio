@@ -33,7 +33,7 @@ pcli validate:        PASS / FAIL
 build resume --dry-run:     PASS / FAIL
 build portfolio --dry-run:  PASS / FAIL
 build resume --preset bok-interview:      PASS / FAIL / SKIP (no typst)
-build portfolio --tags web3:              PASS / FAIL / SKIP (no typst)
+build portfolio --tags web3:              PASS / FAIL
 git status --short (no staged artifacts): PASS / FAIL
 ```
 
