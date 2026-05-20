@@ -165,8 +165,9 @@ def api_card_create():
     if target is None:
         return jsonify({"ok": False, "error": "invalid id or start date"}), 400
 
-    if target.exists():
-        return jsonify({"ok": False, "error": f"card {card_id!r} already exists"}), 409
+    cards_dir = (REPO_ROOT / "cards").resolve()
+    if any(cards_dir.glob(f"????-??-{card_id}.mdx")):
+        return jsonify({"ok": False, "error": f"card id {card_id!r} already exists"}), 409
 
     meta: dict[str, Any] = {
         "id": card_id,
@@ -210,6 +211,9 @@ def api_card_update(card_id: str):
     data = request.get_json(force=True) or {}
     incoming_fields: dict = data.get("fields", {})
     body: str = data.get("body", "")
+
+    if "id" in incoming_fields and incoming_fields["id"] != card_id:
+        return jsonify({"ok": False, "error": "id is immutable; rename not supported"}), 400
 
     post = fm.load(str(path))
     # Deep-merge: update only keys present in incoming_fields

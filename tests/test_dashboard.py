@@ -522,6 +522,47 @@ def test_update_card_invalid_id_rejected(client):
     assert res.status_code == 400
 
 
+def test_create_card_duplicate_id_different_month(client, repo):
+    """Creating same id with different month must be 409 (cross-month duplicate)."""
+    res = client.post(
+        "/api/cards",
+        data=json.dumps(
+            {
+                "id": "sample-card",
+                "type": "project",
+                "period_start": "2026-06-01",
+                "summary": "Different month same id.",
+            }
+        ),
+        content_type="application/json",
+    )
+    assert res.status_code == 409
+    assert not (repo / "cards" / "2026-06-sample-card.mdx").exists()
+
+
+def test_update_card_id_change_rejected(client, repo):
+    """PUT with fields.id differing from URL id must return 400, file unchanged."""
+    card_path = repo / "cards" / "2026-05-sample-card.mdx"
+    original = card_path.read_text(encoding="utf-8")
+    res = client.put(
+        "/api/cards/sample-card",
+        data=json.dumps({"fields": {"id": "renamed-card"}, "body": ""}),
+        content_type="application/json",
+    )
+    assert res.status_code == 400
+    assert card_path.read_text(encoding="utf-8") == original
+
+
+def test_update_card_same_id_accepted(client, repo):
+    """PUT with fields.id matching URL card_id is fine."""
+    res = client.put(
+        "/api/cards/sample-card",
+        data=json.dumps({"fields": {"id": "sample-card", "summary": "Updated."}, "body": ""}),
+        content_type="application/json",
+    )
+    assert res.status_code == 200
+
+
 def test_get_card_no_suffix_collision(client, repo):
     """????-??-<id>.mdx glob must not match files sharing the id as a suffix."""
     (repo / "cards" / "2026-01-foo-sample-card.mdx").write_text(SAMPLE_MDX, encoding="utf-8")
