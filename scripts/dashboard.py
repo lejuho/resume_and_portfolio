@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
+import tempfile
+from datetime import date as _date
 from pathlib import Path
 from typing import Any
 
+import frontmatter as fm
 from flask import Flask, jsonify, render_template, request
+from pydantic import ValidationError as PydanticValidationError
 
 _OUTPUT_PATH_RE = re.compile(
     r"output[/\\](resumes|portfolios)[/\\]\S+\.(pdf|pptx)",
     re.IGNORECASE,
 )
+_KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 REPO_ROOT = Path(__file__).parents[1]
 app = Flask(__name__, template_folder="templates")
@@ -57,6 +63,53 @@ def _card_to_dict(card: Any) -> dict:
     }
 
 
+def _safe_card_path(card_id: str) -> Path | None:
+    """Resolve card path and verify it stays within cards/. Returns None on traversal."""
+    if not _KEBAB_RE.match(card_id):
+        return None
+    cards_dir = (REPO_ROOT / "cards").resolve()
+    # Find the matching file (any YYYY-MM-<id>.mdx)
+    matches = list(cards_dir.glob(f"????-??-{card_id}.mdx"))
+    if not matches:
+        return None
+    target = matches[0].resolve()
+    if not target.is_relative_to(cards_dir):
+        return None
+    return target
+
+
+def _new_card_path(card_id: str, start_date: str) -> Path | None:
+    """Compute new card path. Returns None if traversal detected."""
+    if not _KEBAB_RE.match(card_id):
+        return None
+    cards_dir = (REPO_ROOT / "cards").resolve()
+    try:
+        d = _date.fromisoformat(start_date)
+    except ValueError:
+        return None
+    filename = f"{d.strftime('%Y-%m')}-{card_id}.mdx"
+    target = (cards_dir / filename).resolve()
+    if not target.is_relative_to(cards_dir):
+        return None
+    return target
+
+
+def _write_card_atomic(path: Path, post: Any) -> None:
+    """Write frontmatter post to path atomically via temp file."""
+    content = fm.dumps(post)
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(tmp_name, path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+
 @app.route("/")
 def index() -> str:
     from scripts.card import CardRepo
@@ -82,6 +135,107 @@ def api_cards():
         sort=request.args.get("sort", "date-desc"),
     )
     return jsonify([_card_to_dict(c) for c in cards])
+
+
+@app.route("/api/cards/<card_id>", methods=["GET"])
+def api_card_get(card_id: str):
+    if not _KEBAB_RE.match(card_id):
+        return jsonify({"ok": False, "error": "invalid card id"}), 400
+
+    path = _safe_card_path(card_id)
+    if path is None:
+        return jsonify({"ok": False, "error": "not found"}), 404
+
+    post = fm.load(str(path))
+    return jsonify({"ok": True, "id": card_id, "fields": dict(post.metadata), "body": post.content})
+
+
+@app.route("/api/cards", methods=["POST"])
+def api_card_create():
+    from scripts.card import Card
+
+    data = request.get_json(force=True) or {}
+    card_id = data.get("id", "")
+    start_date = data.get("period_start", "") or data.get("start", "")
+
+    if not _KEBAB_RE.match(card_id):
+        return jsonify({"ok": False, "error": "id must be kebab-case"}), 400
+
+    target = _new_card_path(card_id, start_date)
+    if target is None:
+        return jsonify({"ok": False, "error": "invalid id or start date"}), 400
+
+    if target.exists():
+        return jsonify({"ok": False, "error": f"card {card_id!r} already exists"}), 409
+
+    meta: dict[str, Any] = {
+        "id": card_id,
+        "title": data.get("title") or card_id,
+        "type": data.get("type", "project"),
+        "period": {"start": start_date, "end": None},
+        "status": data.get("status", "draft"),
+        "visibility": data.get("visibility", "public"),
+        "tags": {"domain": [], "skill": [], "audience": []},
+        "metrics": [],
+        "summary": data.get("summary", ""),
+        "summary_ko": None,
+        "narrative": None,
+        "visuals": [],
+        "evidence": [],
+        "links": [],
+        "related": [],
+    }
+
+    try:
+        Card.model_validate(meta)
+    except PydanticValidationError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 422
+
+    post = fm.Post(content="", metadata=meta)
+    _write_card_atomic(target, post)
+    return jsonify({"ok": True, "id": card_id, "path": str(target.relative_to(REPO_ROOT))}), 201
+
+
+@app.route("/api/cards/<card_id>", methods=["PUT"])
+def api_card_update(card_id: str):
+    from scripts.card import Card
+
+    if not _KEBAB_RE.match(card_id):
+        return jsonify({"ok": False, "error": "invalid card id"}), 400
+
+    path = _safe_card_path(card_id)
+    if path is None:
+        return jsonify({"ok": False, "error": "not found"}), 404
+
+    data = request.get_json(force=True) or {}
+    incoming_fields: dict = data.get("fields", {})
+    body: str = data.get("body", "")
+
+    post = fm.load(str(path))
+    # Deep-merge: update only keys present in incoming_fields
+    merged = dict(post.metadata)
+    for k, v in incoming_fields.items():
+        merged[k] = v
+
+    try:
+        Card.model_validate(merged)
+    except PydanticValidationError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 422
+
+    post.metadata = merged
+    post.content = body
+
+    original = path.read_text(encoding="utf-8")
+    try:
+        _write_card_atomic(path, post)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"write failed: {exc}"}), 500
+
+    updated = path.read_text(encoding="utf-8")
+    if updated == original and not incoming_fields and not body:
+        pass  # no-op update is fine
+
+    return jsonify({"ok": True, "id": card_id, "path": str(path.relative_to(REPO_ROOT))})
 
 
 @app.route("/api/build", methods=["POST"])

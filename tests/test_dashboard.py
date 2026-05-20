@@ -328,3 +328,213 @@ def test_parse_output_path_relative_with_spaces():
 def test_parse_output_path_no_false_positive_on_error_line():
     stdout = "Error: expected output in resumes folder but file.pdf was missing\n"
     assert _parse_output_path(stdout) is None
+
+
+# ─── card authoring: GET /api/cards/<id> ─────────────────────────────────────
+
+
+def test_get_card_returns_fields(client):
+    res = client.get("/api/cards/sample-card")
+    assert res.status_code == 200
+    d = res.get_json()
+    assert d["ok"] is True
+    assert d["id"] == "sample-card"
+    assert "fields" in d
+    assert d["fields"]["type"] == "hackathon"
+    assert "body" in d
+
+
+def test_get_card_not_found(client):
+    res = client.get("/api/cards/nonexistent-card")
+    assert res.status_code == 404
+
+
+def test_get_card_invalid_id(client):
+    res = client.get("/api/cards/INVALID_ID")
+    assert res.status_code == 400
+
+
+# ─── card authoring: POST /api/cards ─────────────────────────────────────────
+
+
+def test_create_card_writes_file(client, repo):
+    res = client.post(
+        "/api/cards",
+        data=json.dumps(
+            {
+                "id": "test-new-card",
+                "title": "Test New Card",
+                "type": "project",
+                "period_start": "2026-01-15",
+                "summary": "A test card for dashboard authoring.",
+            }
+        ),
+        content_type="application/json",
+    )
+    assert res.status_code == 201
+    d = res.get_json()
+    assert d["ok"] is True
+    assert d["id"] == "test-new-card"
+    created = repo / "cards" / "2026-01-test-new-card.mdx"
+    assert created.exists()
+
+
+def test_create_card_defaults_draft_public(client, repo):
+    client.post(
+        "/api/cards",
+        data=json.dumps(
+            {
+                "id": "draft-card",
+                "title": "Draft Card",
+                "type": "project",
+                "period_start": "2026-03-01",
+                "summary": "Draft defaults test.",
+            }
+        ),
+        content_type="application/json",
+    )
+    path = repo / "cards" / "2026-03-draft-card.mdx"
+    content = path.read_text(encoding="utf-8")
+    assert "status: draft" in content
+    assert "visibility: public" in content
+
+
+def test_create_card_duplicate_rejected(client, repo):
+    payload = json.dumps(
+        {
+            "id": "sample-card",
+            "title": "Duplicate",
+            "type": "project",
+            "period_start": "2026-05-01",
+            "summary": "Should fail.",
+        }
+    )
+    res = client.post("/api/cards", data=payload, content_type="application/json")
+    assert res.status_code == 409
+
+
+def test_create_card_invalid_id_rejected(client):
+    res = client.post(
+        "/api/cards",
+        data=json.dumps(
+            {
+                "id": "INVALID ID!",
+                "type": "project",
+                "period_start": "2026-01-01",
+                "summary": "x",
+            }
+        ),
+        content_type="application/json",
+    )
+    assert res.status_code == 400
+
+
+def test_create_card_invalid_type_rejected(client):
+    res = client.post(
+        "/api/cards",
+        data=json.dumps(
+            {
+                "id": "bad-type-card",
+                "type": "notavalidtype",
+                "period_start": "2026-01-01",
+                "summary": "x",
+            }
+        ),
+        content_type="application/json",
+    )
+    assert res.status_code == 422
+
+
+def test_create_card_path_traversal_rejected(client):
+    res = client.post(
+        "/api/cards",
+        data=json.dumps(
+            {
+                "id": "ok-id",
+                "type": "project",
+                "period_start": "../../../etc/passwd",
+                "summary": "x",
+            }
+        ),
+        content_type="application/json",
+    )
+    assert res.status_code == 400
+
+
+# ─── card authoring: PUT /api/cards/<id> ─────────────────────────────────────
+
+
+def test_update_card_changes_title(client, repo):
+    res = client.put(
+        "/api/cards/sample-card",
+        data=json.dumps(
+            {
+                "fields": {"title": "Updated Title"},
+                "body": "",
+            }
+        ),
+        content_type="application/json",
+    )
+    assert res.status_code == 200
+    d = res.get_json()
+    assert d["ok"] is True
+    content = (repo / "cards" / "2026-05-sample-card.mdx").read_text(encoding="utf-8")
+    assert "Updated Title" in content
+
+
+def test_update_card_preserves_other_fields(client, repo):
+    client.put(
+        "/api/cards/sample-card",
+        data=json.dumps({"fields": {"summary": "New summary."}, "body": ""}),
+        content_type="application/json",
+    )
+    content = (repo / "cards" / "2026-05-sample-card.mdx").read_text(encoding="utf-8")
+    assert "hackathon" in content
+
+
+def test_update_card_invalid_data_leaves_file_unchanged(client, repo):
+    card_path = repo / "cards" / "2026-05-sample-card.mdx"
+    original = card_path.read_text(encoding="utf-8")
+    res = client.put(
+        "/api/cards/sample-card",
+        data=json.dumps({"fields": {"type": "notvalid"}, "body": ""}),
+        content_type="application/json",
+    )
+    assert res.status_code == 422
+    assert card_path.read_text(encoding="utf-8") == original
+
+
+def test_update_card_not_found(client):
+    res = client.put(
+        "/api/cards/nonexistent-card",
+        data=json.dumps({"fields": {}, "body": ""}),
+        content_type="application/json",
+    )
+    assert res.status_code == 404
+
+
+def test_update_card_invalid_id_rejected(client):
+    res = client.put(
+        "/api/cards/INVALID_ID",
+        data=json.dumps({"fields": {}, "body": ""}),
+        content_type="application/json",
+    )
+    assert res.status_code == 400
+
+
+def test_get_card_no_suffix_collision(client, repo):
+    """????-??-<id>.mdx glob must not match files sharing the id as a suffix."""
+    (repo / "cards" / "2026-01-foo-sample-card.mdx").write_text(SAMPLE_MDX, encoding="utf-8")
+    res = client.get("/api/cards/sample-card")
+    assert res.status_code == 200
+    assert res.get_json()["id"] == "sample-card"
+
+
+def test_dashboard_has_new_card_button(client):
+    res = client.get("/")
+    assert b"New card" in res.data or b"new-card" in res.data
+
+
+def test_dashboard_has_edit_button(client):
+    res = client.get("/")
+    assert b"openEdit" in res.data or b"edit-btn" in res.data
