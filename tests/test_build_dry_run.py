@@ -107,6 +107,16 @@ def test_invalid_max_items_negative_rejected(repo):
     assert result.exit_code != 0
 
 
+def test_portfolio_max_items_zero_rejected(repo):
+    result = runner.invoke(app, ["build", "portfolio", "--max-items", "0", "--dry-run"])
+    assert result.exit_code != 0
+
+
+def test_portfolio_max_items_negative_rejected(repo):
+    result = runner.invoke(app, ["build", "portfolio", "--max-items", "-1", "--dry-run"])
+    assert result.exit_code != 0
+
+
 def test_invalid_layout_rejected(repo):
     result = runner.invoke(app, ["build", "portfolio", "--layout", "bad-layout", "--dry-run"])
     assert result.exit_code != 0

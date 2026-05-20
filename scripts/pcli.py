@@ -398,7 +398,7 @@ def cmd_build_resume(
 
     if not selected:
         console.print("[yellow]No cards selected. Check filters or use --cards.[/yellow]")
-        raise typer.Exit(0)
+        raise typer.Exit(1)
 
     llm_meta: dict = {}
 
@@ -557,6 +557,9 @@ def cmd_build_portfolio(
         max_items = max_items if max_items is not None else 12
         explicit_ids = [s.strip() for s in cards_arg.split(",")] if cards_arg else None
 
+    if max_items is not None and max_items < 1:
+        raise typer.BadParameter("must be a positive integer", param_hint="'--max-items'")
+
     _SUPPORTED_LAYOUTS = frozenset({"one-per-card", "grouped-by-type", "timeline"})
     if layout not in _SUPPORTED_LAYOUTS:
         err_console.print(
@@ -586,7 +589,7 @@ def cmd_build_portfolio(
 
     if not selected:
         console.print("[yellow]No cards selected. Check filters or use --cards.[/yellow]")
-        raise typer.Exit(0)
+        raise typer.Exit(1)
 
     if dry_run:
         console.print(
