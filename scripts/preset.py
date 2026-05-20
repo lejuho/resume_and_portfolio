@@ -36,6 +36,15 @@ class PresetError(Exception):
     pass
 
 
+def _normalize_filter(value: object) -> Optional[str]:
+    """Accept list or comma-string; return comma-string or None."""
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return ",".join(str(v) for v in value) if value else None
+    return str(value)
+
+
 def load_preset(name: str, presets_dir: Path) -> Preset:
     """Load a preset from presets/<name>.yaml. Raises PresetError on failure."""
     path = presets_dir / f"{name}.yaml"
@@ -54,8 +63,8 @@ def load_preset(name: str, presets_dir: Path) -> Preset:
 
     filters_raw = data.get("filters") or {}
     filters = PresetFilters(
-        tags=filters_raw.get("tags"),
-        types=filters_raw.get("types"),
+        tags=_normalize_filter(filters_raw.get("tags")),
+        types=_normalize_filter(filters_raw.get("types")),
         since=filters_raw.get("since"),
         until=filters_raw.get("until"),
     )

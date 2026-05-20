@@ -133,6 +133,34 @@ def test_load_preset_include_exclude(preset_repo):
     assert p.exclude_cards == ["card-c"]
 
 
+def test_load_preset_filters_list_format(preset_repo):
+    """filters.tags and filters.types accept YAML list form (requirements.md format)."""
+    p_yaml = textwrap.dedent("""\
+        target: portfolio
+        filters:
+          tags: [solana, web3]
+          types: [role, project]
+    """)
+    (preset_repo / "presets" / "listfmt.yaml").write_text(p_yaml, encoding="utf-8")
+    p = load_preset("listfmt", preset_repo / "presets")
+    assert p.filters.tags == "solana,web3"
+    assert p.filters.types == "role,project"
+
+
+def test_load_preset_filters_string_format(preset_repo):
+    """filters.tags and filters.types also accept comma-separated string form."""
+    p_yaml = textwrap.dedent("""\
+        target: portfolio
+        filters:
+          tags: "solana,web3"
+          types: "role,project"
+    """)
+    (preset_repo / "presets" / "strfmt.yaml").write_text(p_yaml, encoding="utf-8")
+    p = load_preset("strfmt", preset_repo / "presets")
+    assert p.filters.tags == "solana,web3"
+    assert p.filters.types == "role,project"
+
+
 # ─── select.py exclude_ids ─────────────────────────────────────────────────
 
 

@@ -1,7 +1,7 @@
 target: resume
 template: bok
 lang: ko
-max_items: 8
-filters:
-  tags: null
-  types: null
+include_cards:
+  - chainlens-launch
+  - solana-colosseum
+  - pocavault-seoulana
