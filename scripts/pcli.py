@@ -788,5 +788,18 @@ def cmd_llm_suggest(
     console.print(_yaml.dump(data, allow_unicode=True, sort_keys=False), end="")
 
 
+@app.command("dashboard")
+def cmd_dashboard(
+    host: str = typer.Option("127.0.0.1", "--host", help="Host to bind"),
+    port: int = typer.Option(5000, "--port", help="Port to bind"),
+    debug: bool = typer.Option(False, "--debug", help="Enable Flask debug mode"),
+) -> None:
+    """Start the local dashboard server."""
+    from scripts.dashboard import run_server
+
+    console.print(f"[bold]Dashboard:[/bold] http://{host}:{port}")
+    run_server(host=host, port=port, debug=debug)
+
+
 if __name__ == "__main__":
     app()
