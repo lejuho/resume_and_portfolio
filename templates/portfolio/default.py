@@ -33,18 +33,84 @@ def render(
     options: PortfolioOptions,
     output_path: Path,
 ) -> None:
-    prs = Presentation()
-    prs.slide_width = Inches(13.333)
-    prs.slide_height = Inches(7.5)
+    layout = options.layout
+    if layout == "grouped-by-type":
+        _render_grouped(cards, profile, options, output_path)
+    elif layout == "timeline":
+        _render_timeline(cards, profile, options, output_path)
+    else:
+        _render_default(cards, profile, options, output_path)
 
+
+def _render_default(
+    cards: list[Card],
+    profile: dict,
+    options: PortfolioOptions,
+    output_path: Path,
+) -> None:
+    prs = _new_presentation()
     theme = _theme_for(cards)
     _add_cover(prs, cards, profile, options, theme)
     _add_toc(prs, cards, theme)
     for index, card in enumerate(cards, start=1):
         _add_card_slide(prs, card, index, options, theme)
     _add_closing(prs, profile, theme)
-
     prs.save(output_path)
+
+
+def _render_grouped(
+    cards: list[Card],
+    profile: dict,
+    options: PortfolioOptions,
+    output_path: Path,
+) -> None:
+    """grouped-by-type: cover → TOC → (type divider → cards per type) → closing."""
+    from itertools import groupby
+
+    prs = _new_presentation()
+    theme = _theme_for(cards)
+    _add_cover(prs, cards, profile, options, theme)
+    _add_toc(prs, cards, theme)
+
+    sorted_cards = sorted(cards, key=lambda c: c.type)
+    global_index = 1
+    for card_type, group in groupby(sorted_cards, key=lambda c: c.type):
+        group_list = list(group)
+        _add_type_divider(prs, card_type, len(group_list), theme)
+        for card in group_list:
+            _add_card_slide(prs, card, global_index, options, theme)
+            global_index += 1
+
+    _add_closing(prs, profile, theme)
+    prs.save(output_path)
+
+
+def _render_timeline(
+    cards: list[Card],
+    profile: dict,
+    options: PortfolioOptions,
+    output_path: Path,
+) -> None:
+    """timeline: cover → timeline overview → highlight slides (live + metrics) → closing."""
+    prs = _new_presentation()
+    theme = _theme_for(cards)
+    _add_cover(prs, cards, profile, options, theme)
+    _add_timeline_overview(prs, cards, theme)
+
+    highlights = [c for c in cards if c.status == "live" and c.metrics]
+    highlights_sorted = sorted(highlights, key=lambda c: c.period.start, reverse=True)
+    for index, card in enumerate(highlights_sorted, start=1):
+        _add_card_slide(prs, card, index, options, theme)
+
+    _add_closing(prs, profile, theme)
+    prs.save(output_path)
+
+
+def _new_presentation():
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+    return prs
 
 
 def _theme_for(cards: list[Card]) -> dict[str, str]:
@@ -173,6 +239,32 @@ def _add_visual(slide, card: Card, options: PortfolioOptions, theme):
         console.print(f"[yellow]WARN[/yellow] {card.id}: missing visual {visual.path}")
     box = _textbox(slide, x + 0.35, y + 2.7, w - 0.7, 0.4, label, size=14, color="334155")
     box.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+
+
+def _add_type_divider(prs, card_type: str, count: int, theme):
+    """Section divider slide for grouped-by-type layout."""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _fill_bg(slide, theme)
+    _textbox(
+        slide, 1.2, 2.8, 8.0, 0.8, card_type.upper(), size=36, color=theme["accent"], bold=True
+    )
+    _textbox(slide, 1.2, 3.75, 5.0, 0.4, f"{count} card(s)", size=16, color=theme["muted"])
+    _accent_bar(slide, theme)
+
+
+def _add_timeline_overview(prs, cards: list[Card], theme):
+    """Timeline overview slide listing all cards chronologically."""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _fill_bg(slide, theme)
+    _textbox(slide, 0.65, 0.45, 6.0, 0.5, "Timeline", size=24, color=theme["fg"], bold=True)
+    sorted_cards = sorted(cards, key=lambda c: c.period.start)
+    for i, card in enumerate(sorted_cards[:10]):
+        y = 1.1 + i * 0.56
+        start = card.period.start.isoformat()
+        _textbox(slide, 0.85, y, 1.6, 0.3, start, size=10, color=theme["muted"])
+        _textbox(slide, 2.55, y, 7.5, 0.32, card.title, size=12, color=theme["fg"])
+        _textbox(slide, 10.2, y, 2.5, 0.25, card.type, size=9, color=theme["accent"])
+    _accent_bar(slide, theme)
 
 
 def _add_closing(prs, profile: dict, theme):

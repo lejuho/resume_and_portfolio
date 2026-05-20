@@ -377,7 +377,7 @@ def test_build_portfolio_unsupported_layout_exits_nonzero(card_repo, monkeypatch
     import scripts.pcli as pcli_mod
 
     monkeypatch.setattr(pcli_mod, "REPO_ROOT", card_repo)
-    result = runner.invoke(app, ["build", "portfolio", "--layout", "timeline", "--dry-run"])
+    result = runner.invoke(app, ["build", "portfolio", "--layout", "invalid-layout", "--dry-run"])
     assert result.exit_code != 0
 
 

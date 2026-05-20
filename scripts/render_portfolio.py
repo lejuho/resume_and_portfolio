@@ -48,10 +48,11 @@ def build_portfolio(
     out_path: Optional[Path] = None,
     verbose: bool = False,
 ) -> Path:
-    if layout != "one-per-card":
+    _SUPPORTED = frozenset({"one-per-card", "grouped-by-type", "timeline"})
+    if layout not in _SUPPORTED:
         err_console.print(
             f"[red]Unsupported portfolio layout:[/red] {layout!r}. "
-            "Cycle 2 supports only 'one-per-card'."
+            f"Supported: {', '.join(sorted(_SUPPORTED))}"
         )
         sys.exit(2)
 

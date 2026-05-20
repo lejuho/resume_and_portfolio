@@ -22,6 +22,8 @@ app = typer.Typer(
 )
 build_app = typer.Typer(help="Build resume or portfolio artifacts.", no_args_is_help=True)
 app.add_typer(build_app, name="build")
+preset_app = typer.Typer(help="Manage build presets.", no_args_is_help=True)
+app.add_typer(preset_app, name="preset")
 
 console = Console()
 err_console = Console(stderr=True, style="bold red")
@@ -295,30 +297,56 @@ def cmd_show(
 
 @build_app.command("resume")
 def cmd_build_resume(
-    template: str = typer.Option(
-        "default", "--template", help="Template name under templates/resume/"
-    ),  # noqa: E501
+    preset_name: Optional[str] = typer.Option(None, "--preset", help="Preset name from presets/"),
+    template: Optional[str] = typer.Option(None, "--template", help="Template (default: default)"),
     cards_arg: Optional[str] = typer.Option(None, "--cards", help="Explicit comma-sep card ids"),
     tags: Optional[str] = typer.Option(None, "--tags", help="Tag filter (OR, comma-separated)"),
     types: Optional[str] = typer.Option(None, "--types", help="Type filter (comma-separated)"),
     since: Optional[str] = typer.Option(None, "--since", help="Since YYYY-MM"),
     until: Optional[str] = typer.Option(None, "--until", help="Until YYYY-MM"),
-    max_items: int = typer.Option(12, "--max-items", help="Max cards to include"),
-    lang: str = typer.Option("en", "--lang", help="Language: en or ko"),
+    max_items: Optional[int] = typer.Option(None, "--max-items", help="Max cards (default: 12)"),
+    lang: Optional[str] = typer.Option(None, "--lang", help="Language: en or ko (default: en)"),
     out: Optional[Path] = typer.Option(None, "--out", help="Output PDF path"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print selected cards; skip Typst"),
     verbose: bool = typer.Option(False, "--verbose", help="Show render steps"),
 ):
     """Build a PDF resume via Typst."""
+    from .preset import PresetError, load_preset, save_last_build
     from .render_resume import build_resume
+
+    exclude_ids: list[str] = []
+
+    if preset_name:
+        try:
+            p = load_preset(preset_name, REPO_ROOT / "presets")
+        except PresetError as exc:
+            err_console.print(f"[red]Preset error:[/red] {exc}")
+            raise typer.Exit(1)
+        if p.target != "resume":
+            err_console.print(f"[red]Preset target is {p.target!r}, expected 'resume'.[/red]")
+            raise typer.Exit(1)
+        template = template or p.template or "default"
+        lang = lang or p.lang or "en"
+        max_items = max_items if max_items is not None else (p.max_items or 12)
+        tags = tags or p.filters.tags
+        types = types or p.filters.types
+        since = since or p.filters.since
+        until = until or p.filters.until
+        exclude_ids = p.exclude_cards
+        explicit_ids = (
+            [s.strip() for s in cards_arg.split(",")] if cards_arg else (p.include_cards or None)
+        )
+    else:
+        template = template or "default"
+        lang = lang or "en"
+        max_items = max_items if max_items is not None else 12
+        explicit_ids = [s.strip() for s in cards_arg.split(",")] if cards_arg else None
 
     repo = _repo()
     if repo.errors:
         for e in repo.errors:
             err_console.print(f"[red]ERROR[/red] {e}")
         raise typer.Exit(1)
-
-    explicit_ids = [s.strip() for s in cards_arg.split(",")] if cards_arg else None
 
     selected = filter_cards(
         repo.cards,
@@ -330,20 +358,51 @@ def cmd_build_resume(
         sort="date-desc",
         max_items=max_items,
         explicit_ids=explicit_ids,
+        exclude_ids=exclude_ids or None,
     )
 
     if not selected:
         console.print("[yellow]No cards selected. Check filters or use --cards.[/yellow]")
         raise typer.Exit(0)
 
+    # bok template requires summary_ko — validate before build, warn on dry-run
+    missing_ko = [c.id for c in selected if template == "bok" and not c.summary_ko]
+
     if dry_run:
-        console.print(f"[bold]Dry run:[/bold] {len(selected)} card(s) selected\n")
+        console.print(
+            f"[bold]Dry run:[/bold] {len(selected)} card(s) selected  "
+            f"[dim]template={template} lang={lang}[/dim]\n"
+        )
         for card in selected:
             console.print(f"  • [cyan]{card.id}[/cyan]  {card.title}  ({card.type})")
+        if missing_ko:
+            console.print(
+                f"[yellow]WARN[/yellow] bok: missing summary_ko on: {', '.join(missing_ko)}"
+            )
         return
+
+    if missing_ko:
+        err_console.print(
+            "[red]bok template requires summary_ko on all selected cards.[/red]\n"
+            f"Missing summary_ko: {', '.join(missing_ko)}"
+        )
+        raise typer.Exit(1)
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
     out_path = out or (REPO_ROOT / "output" / "resumes" / f"resume-{timestamp}.pdf")
+
+    save_last_build(
+        {
+            "target": "resume",
+            "template": template,
+            "lang": lang,
+            "max_items": max_items,
+            "filters": {"tags": tags, "types": types, "since": since, "until": until},
+            "include_cards": explicit_ids or [],
+            "exclude_cards": exclude_ids,
+        },
+        REPO_ROOT / ".cache",
+    )
 
     build_resume(
         cards=selected,
@@ -357,13 +416,14 @@ def cmd_build_resume(
 
 @build_app.command("portfolio")
 def cmd_build_portfolio(
+    preset_name: Optional[str] = typer.Option(None, "--preset", help="Preset name from presets/"),
     cards_arg: Optional[str] = typer.Option(None, "--cards", help="Explicit comma-sep card ids"),
     tags: Optional[str] = typer.Option(None, "--tags", help="Tag filter (OR, comma-separated)"),
     types: Optional[str] = typer.Option(None, "--types", help="Type filter (comma-separated)"),
     since: Optional[str] = typer.Option(None, "--since", help="Since YYYY-MM"),
     until: Optional[str] = typer.Option(None, "--until", help="Until YYYY-MM"),
-    max_items: int = typer.Option(12, "--max-items", help="Max cards to include"),
-    layout: str = typer.Option("one-per-card", "--layout", help="Layout: one-per-card"),
+    max_items: Optional[int] = typer.Option(None, "--max-items", help="Max cards (default: 12)"),
+    layout: Optional[str] = typer.Option(None, "--layout", help="Layout (default: one-per-card)"),
     include_narrative: bool = typer.Option(
         True,
         "--include-narrative/--no-narrative",
@@ -376,9 +436,38 @@ def cmd_build_portfolio(
     verbose: bool = typer.Option(False, "--verbose", help="Show render steps"),
 ):
     """Build a PPTX portfolio via python-pptx."""
+    from .preset import PresetError, load_preset, save_last_build
     from .render_portfolio import build_portfolio
 
-    _SUPPORTED_LAYOUTS = frozenset({"one-per-card"})
+    exclude_ids: list[str] = []
+
+    if preset_name:
+        try:
+            p = load_preset(preset_name, REPO_ROOT / "presets")
+        except PresetError as exc:
+            err_console.print(f"[red]Preset error:[/red] {exc}")
+            raise typer.Exit(1)
+        if p.target != "portfolio":
+            err_console.print(f"[red]Preset target is {p.target!r}, expected 'portfolio'.[/red]")
+            raise typer.Exit(1)
+        layout = layout or p.layout or "one-per-card"
+        max_items = max_items if max_items is not None else (p.max_items or 12)
+        cover_title = cover_title or p.cover_title
+        cover_subtitle = cover_subtitle or p.cover_subtitle
+        tags = tags or p.filters.tags
+        types = types or p.filters.types
+        since = since or p.filters.since
+        until = until or p.filters.until
+        exclude_ids = p.exclude_cards
+        explicit_ids = (
+            [s.strip() for s in cards_arg.split(",")] if cards_arg else (p.include_cards or None)
+        )
+    else:
+        layout = layout or "one-per-card"
+        max_items = max_items if max_items is not None else 12
+        explicit_ids = [s.strip() for s in cards_arg.split(",")] if cards_arg else None
+
+    _SUPPORTED_LAYOUTS = frozenset({"one-per-card", "grouped-by-type", "timeline"})
     if layout not in _SUPPORTED_LAYOUTS:
         err_console.print(
             f"[red]Unsupported layout:[/red] {layout!r}. "
@@ -392,8 +481,6 @@ def cmd_build_portfolio(
             err_console.print(f"[red]ERROR[/red] {e}")
         raise typer.Exit(1)
 
-    explicit_ids = [s.strip() for s in cards_arg.split(",")] if cards_arg else None
-
     selected = filter_cards(
         repo.cards,
         types=types,
@@ -404,6 +491,7 @@ def cmd_build_portfolio(
         sort="date-desc",
         max_items=max_items,
         explicit_ids=explicit_ids,
+        exclude_ids=exclude_ids or None,
     )
 
     if not selected:
@@ -411,13 +499,30 @@ def cmd_build_portfolio(
         raise typer.Exit(0)
 
     if dry_run:
-        console.print(f"[bold]Dry run:[/bold] {len(selected)} card(s) selected for portfolio\n")
+        console.print(
+            f"[bold]Dry run:[/bold] {len(selected)} card(s) selected for portfolio  "
+            f"[dim]layout={layout}[/dim]\n"
+        )
         for card in selected:
             console.print(f"  • [cyan]{card.id}[/cyan]  {card.title}  ({card.type})")
         return
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
     out_path = out or (REPO_ROOT / "output" / "portfolios" / f"portfolio-{timestamp}.pptx")
+
+    save_last_build(
+        {
+            "target": "portfolio",
+            "layout": layout,
+            "max_items": max_items,
+            "cover_title": cover_title,
+            "cover_subtitle": cover_subtitle,
+            "filters": {"tags": tags, "types": types, "since": since, "until": until},
+            "include_cards": explicit_ids or [],
+            "exclude_cards": exclude_ids,
+        },
+        REPO_ROOT / ".cache",
+    )
 
     build_portfolio(
         cards=selected,
@@ -429,6 +534,79 @@ def cmd_build_portfolio(
         out_path=out_path,
         verbose=verbose,
     )
+
+
+# ---------------------------------------------------------------------------
+# pcli preset
+# ---------------------------------------------------------------------------
+
+
+@preset_app.command("run")
+def cmd_preset_run(
+    name: str = typer.Argument(..., help="Preset name"),
+    out: Optional[Path] = typer.Option(None, "--out", help="Override output path"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print selection; skip rendering"),
+    verbose: bool = typer.Option(False, "--verbose", help="Show render steps"),
+):
+    """Run a build preset by name."""
+    from .preset import PresetError, load_preset
+
+    try:
+        p = load_preset(name, REPO_ROOT / "presets")
+    except PresetError as exc:
+        err_console.print(f"[red]Preset error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    if p.target == "resume":
+        cmd_build_resume(
+            preset_name=name,
+            template=None,
+            cards_arg=None,
+            tags=None,
+            types=None,
+            since=None,
+            until=None,
+            max_items=None,
+            lang=None,
+            out=out,
+            dry_run=dry_run,
+            verbose=verbose,
+        )
+    elif p.target == "portfolio":
+        cmd_build_portfolio(
+            preset_name=name,
+            cards_arg=None,
+            tags=None,
+            types=None,
+            since=None,
+            until=None,
+            max_items=None,
+            layout=None,
+            include_narrative=True,
+            cover_title=None,
+            cover_subtitle=None,
+            out=out,
+            dry_run=dry_run,
+            verbose=verbose,
+        )
+    else:
+        err_console.print(f"[red]Unknown preset target:[/red] {p.target!r}")
+        raise typer.Exit(1)
+
+
+@preset_app.command("save")
+def cmd_preset_save(
+    name: str = typer.Argument(..., help="Preset name to save"),
+):
+    """Save the most recent build arguments as a named preset."""
+    from .preset import PresetError, save_preset_from_cache
+
+    try:
+        dest = save_preset_from_cache(name, REPO_ROOT / "presets", REPO_ROOT / ".cache")
+    except PresetError as exc:
+        err_console.print(f"[red]Preset save error:[/red] {exc}")
+        raise typer.Exit(1)
+    console.print(f"[green]Preset saved:[/green] {dest.relative_to(REPO_ROOT)}")
 
 
 if __name__ == "__main__":

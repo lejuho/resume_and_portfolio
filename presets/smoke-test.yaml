@@ -1,0 +1,14 @@
+target: portfolio
+layout: one-per-card
+max_items: 10
+cover_title: Solana Colosseum Hackathon Portfolio
+cover_subtitle: Web3 & DeFi Projects
+filters:
+  tags: web3
+  types: null
+  since: null
+  until: null
+include_cards:
+- solana-colosseum
+- pocavault-seoulana
+exclude_cards: []

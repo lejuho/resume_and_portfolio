@@ -32,6 +32,7 @@ def filter_cards(
     sort: str = "date-desc",
     max_items: Optional[int] = None,
     explicit_ids: Optional[list[str]] = None,
+    exclude_ids: Optional[list[str]] = None,
 ) -> list[Card]:
     """Return filtered and sorted subset of cards."""
 
@@ -39,6 +40,10 @@ def filter_cards(
     if explicit_ids:
         id_set = set(explicit_ids)
         result = [c for c in cards if c.id in id_set]
+        # exclude_ids still applies even with explicit selection
+        if exclude_ids:
+            exc_set = set(exclude_ids)
+            result = [c for c in result if c.id not in exc_set]
         return result
 
     result = list(cards)
@@ -83,6 +88,10 @@ def filter_cards(
         result.sort(key=_sort_key)
     elif sort == "title":
         result.sort(key=lambda c: c.title.lower())
+
+    if exclude_ids:
+        exc_set = set(exclude_ids)
+        result = [c for c in result if c.id not in exc_set]
 
     if max_items is not None:
         result = result[:max_items]

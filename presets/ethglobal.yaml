@@ -1,0 +1,7 @@
+target: portfolio
+layout: one-per-card
+cover_title: "ETHGlobal Portfolio"
+cover_subtitle: "Ethereum & DeFi Projects"
+filters:
+  tags: web3
+max_items: 8
