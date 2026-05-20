@@ -132,3 +132,37 @@ evidence:
 
 (선택) 마크다운 본문 — narrative 없으면 여기서 fallback
 ```
+
+## Verify v1
+
+모든 자동화 체크와 수동 검증 항목은 [docs/acceptance-v1.md](docs/acceptance-v1.md)에 정의되어 있습니다.
+
+```powershell
+# PowerShell (Windows)
+.\scripts\smoke.ps1
+
+# bash (macOS/Linux)
+bash scripts/smoke.sh
+```
+
+스크립트가 없거나 직접 확인하려면:
+
+```bash
+uv run pytest -v
+uv run ruff check scripts tests templates
+uv run pcli validate
+uv run pcli build resume --dry-run
+uv run pcli build portfolio --dry-run
+uv run pcli build resume --preset bok-interview   # Typst 필요
+uv run pcli build portfolio --tags web3           # Typst 필요
+```
+
+### 출력 경로 및 Git 추적 정책
+
+| 항목 | 경로 | Git |
+|------|------|-----|
+| Resume PDF | `output/resumes/resume-YYYYMMDD-HHMM.pdf` | 무시 (`output/` gitignored) |
+| Portfolio PPTX | `output/portfolios/portfolio-YYYYMMDD-HHMM.pptx` | 무시 |
+| LLM 캐시 | `.cache/llm/<sha256>.json` | 무시 |
+| Build 컨텍스트 | `.build/resume-data.json` | 무시 |
+| Cycle 리뷰 기록 | `.review/` | **추적됨** (사이클 히스토리 보존) |
