@@ -104,9 +104,18 @@ function renderPreview(draft, missingInfo) {
     miDiv.appendChild(el);
   }
 
-  document.getElementById("st-save-btn").hidden = false;
+  const saveBtn = document.getElementById("st-save-btn");
+  saveBtn.hidden = false;
+  saveBtn.disabled = false;
+  saveBtn.textContent = "Save as draft card";
+
   document.getElementById("st-save-result").hidden = true;
   document.getElementById("st-post-save").hidden = true;
+
+  _savedId = null;
+  const buildOutput = document.getElementById("st-build-output");
+  buildOutput.style.display = "none";
+  buildOutput.textContent = "";
 }
 
 // ── Save ─────────────────────────────────────────────────────────────────────

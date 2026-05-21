@@ -313,3 +313,11 @@ def test_studio_js_calls_api_build_with_selected_ids(client):
     assert rv.status_code == 200
     assert b"/api/build" in rv.data
     assert b"selected_ids" in rv.data
+
+
+def test_studio_js_resets_save_btn_on_render(client):
+    rv = client.get("/static/studio.js")
+    assert rv.status_code == 200
+    # renderPreview must restore the save button for a second refine→save flow
+    assert b"disabled = false" in rv.data
+    assert b'"Save as draft card"' in rv.data
