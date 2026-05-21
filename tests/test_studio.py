@@ -203,3 +203,113 @@ def test_studio_save_does_not_persist_raw_body(client, repo):
     assert rv_save.status_code == 201
     saved = (repo / rv_save.get_json()["path"]).read_text(encoding="utf-8")
     assert "SECRET_BODY_PHRASE" not in saved
+
+
+# ─── Cycle 12: editable preview hooks ────────────────────────────────────────
+
+_EDIT_DRAFT = {
+    "id": "edit-draft-card",
+    "title": "Edit Draft Card",
+    "type": "project",
+    "period_start": "2024-03-01",
+    "status": "draft",
+    "visibility": "public",
+    "summary": "Original summary",
+    "tags": {"domain": [], "skill": [], "audience": []},
+    "metrics": [],
+    "evidence": [],
+    "visuals": [],
+    "links": [],
+    "related": [],
+}
+
+
+def test_studio_has_editable_preview_hooks(client):
+    rv = client.get("/studio")
+    assert b"st-edit-title" in rv.data
+    assert b"st-edit-summary" in rv.data
+    assert b"st-edit-resume-bullet" in rv.data
+    assert b"st-edit-portfolio-body" in rv.data
+    assert b"st-edit-fields" in rv.data
+
+
+def test_studio_has_post_save_action_hooks(client):
+    rv = client.get("/studio")
+    assert b"st-post-save" in rv.data
+    assert b"st-action-dashboard" in rv.data
+    assert b"st-action-build-resume" in rv.data
+    assert b"st-action-build-portfolio" in rv.data
+    assert b"st-build-output" in rv.data
+
+
+def test_studio_has_source_chips_hook(client):
+    rv = client.get("/studio")
+    assert b"st-source-chips" in rv.data
+
+
+def test_edited_summary_persists(client, repo):
+    draft = {**_EDIT_DRAFT, "summary": "EDITED_SUMMARY_VALUE"}
+    rv = client.post("/api/studio/save", json={"draft": draft})
+    assert rv.status_code == 201
+    saved = (repo / rv.get_json()["path"]).read_text(encoding="utf-8")
+    assert "EDITED_SUMMARY_VALUE" in saved
+
+
+def test_edited_portfolio_body_persists(client, repo):
+    draft = {
+        **_EDIT_DRAFT,
+        "id": "edit-body-card",
+        "portfolio_body": "## Problem\n\nEDITED_BODY_CONTENT\n",
+    }
+    rv = client.post("/api/studio/save", json={"draft": draft})
+    assert rv.status_code == 201
+    saved = (repo / rv.get_json()["path"]).read_text(encoding="utf-8")
+    assert "EDITED_BODY_CONTENT" in saved
+
+
+def test_edited_resume_bullet_persists_as_narrative(client, repo):
+    draft = {**_EDIT_DRAFT, "id": "edit-bullet-card", "resume_bullet": "EDITED_BULLET_VALUE"}
+    rv = client.post("/api/studio/save", json={"draft": draft})
+    assert rv.status_code == 201
+    saved = (repo / rv.get_json()["path"]).read_text(encoding="utf-8")
+    assert "EDITED_BULLET_VALUE" in saved
+
+
+def test_missing_info_code_message_structure(client):
+    rv = client.post("/api/studio/refine", json={"raw_text": RAW_BARE, "intent": "both"})
+    assert rv.status_code == 200
+    for item in rv.get_json()["missing_info"]:
+        assert "code" in item
+        assert "message" in item
+        assert item["code"].isupper()
+
+
+def test_studio_js_has_mi_code_message_hooks(client):
+    rv = client.get("/static/studio.js")
+    assert rv.status_code == 200
+    assert b"mi-code" in rv.data
+    assert b"mi-message" in rv.data
+
+
+def test_studio_html_has_chip_type_styles(client):
+    rv = client.get("/studio")
+    assert rv.status_code == 200
+    assert b"chip-date" in rv.data
+    assert b"chip-metric" in rv.data
+    assert b"chip-link" in rv.data
+    assert b"chip-visual" in rv.data
+
+
+def test_save_response_includes_id_for_build(client, repo):
+    rv = client.post("/api/studio/save", json={"draft": _EDIT_DRAFT})
+    assert rv.status_code == 201
+    body = rv.get_json()
+    assert "id" in body
+    assert body["id"]  # non-empty — suitable for selected_ids in /api/build
+
+
+def test_studio_js_calls_api_build_with_selected_ids(client):
+    rv = client.get("/static/studio.js")
+    assert rv.status_code == 200
+    assert b"/api/build" in rv.data
+    assert b"selected_ids" in rv.data

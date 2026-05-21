@@ -11,28 +11,45 @@
     main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 20px 24px; max-width: 1200px; }
     section { background: #fff; border-radius: 6px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
     h2 { margin: 0 0 12px; font-size: 1rem; color: #444; }
-    textarea { width: 100%; box-sizing: border-box; height: 260px; resize: vertical; font-size: .9rem;
+    textarea { width: 100%; box-sizing: border-box; resize: vertical; font-size: .9rem;
                border: 1px solid #ccc; border-radius: 4px; padding: 8px; }
+    #st-raw { height: 220px; }
+    input[type="text"] { width: 100%; box-sizing: border-box; font-size: .9rem;
+                         border: 1px solid #ccc; border-radius: 4px; padding: 8px; }
     .intent-row { display: flex; gap: 16px; margin: 10px 0; align-items: center; }
     .intent-row label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
     button { padding: 8px 18px; border: none; border-radius: 4px; cursor: pointer; font-size: .9rem; }
     #st-refine-btn { background: #1a1a2e; color: #fff; }
     #st-refine-btn:hover { background: #2d2d4e; }
-    #st-save-btn { background: #2e7d32; color: #fff; margin-top: 12px; display: none; }
+    #st-save-btn { background: #2e7d32; color: #fff; margin-top: 12px; }
     #st-save-btn:hover { background: #1b5e20; }
-    #st-preview { min-height: 160px; }
-    .preview-field { margin-bottom: 14px; }
-    .preview-field label { display: block; font-size: .75rem; color: #888; margin-bottom: 4px; text-transform: uppercase; }
-    .preview-field .val { font-size: .9rem; white-space: pre-wrap; background: #f9f9f9;
-                          border: 1px solid #eee; border-radius: 4px; padding: 8px; }
+    .edit-field { margin-bottom: 14px; }
+    .edit-field label { display: block; font-size: .75rem; color: #888; margin-bottom: 4px; text-transform: uppercase; }
     #st-missing-info { margin-top: 14px; }
     .missing-item { background: #fff8e1; border: 1px solid #ffe082; border-radius: 4px;
-                    padding: 8px 12px; margin-bottom: 6px; font-size: .85rem; }
-    .missing-item .code { font-weight: 600; color: #795548; margin-right: 8px; }
-    .save-result { margin-top: 10px; padding: 8px 12px; border-radius: 4px; font-size: .85rem; display: none; }
+                    padding: 8px 12px; margin-bottom: 6px; font-size: .85rem; display: flex; gap: 8px; }
+    .missing-item .mi-code { font-weight: 600; color: #795548; white-space: nowrap; }
+    .missing-item .mi-message { color: #555; }
+    .save-result { margin-top: 10px; padding: 8px 12px; border-radius: 4px; font-size: .85rem; }
     .save-result.ok { background: #e8f5e9; border: 1px solid #a5d6a7; color: #2e7d32; }
     .save-result.err { background: #ffebee; border: 1px solid #ef9a9a; color: #c62828; }
-    .placeholder { color: #aaa; font-style: italic; font-size: .9rem; padding: 8px 0; }
+    .placeholder { color: #aaa; font-style: italic; font-size: .9rem; padding: 8px 0; margin: 0; }
+    #st-source-chips { min-height: 24px; margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: .75rem; font-weight: 500; }
+    .chip-date    { background: #e3f2fd; color: #1565c0; }
+    .chip-metric  { background: #e8f5e9; color: #2e7d32; }
+    .chip-link    { background: #f3e5f5; color: #6a1b9a; }
+    .chip-visual  { background: #fff3e0; color: #e65100; }
+    #st-post-save { margin-top: 16px; padding: 14px; background: #f1f8e9; border: 1px solid #c5e1a5;
+                    border-radius: 6px; }
+    #st-post-save p { margin: 0 0 10px; font-weight: 600; color: #2e7d32; }
+    #st-post-save a { display: inline-block; margin-right: 8px; color: #1a1a2e; font-size: .85rem; }
+    #st-post-save button { background: #1a1a2e; color: #fff; font-size: .85rem; padding: 6px 14px;
+                           margin-right: 6px; }
+    #st-post-save button:hover { background: #2d2d4e; }
+    #st-build-output { margin-top: 10px; background: #263238; color: #cfd8dc; padding: 10px 12px;
+                       border-radius: 4px; font-size: .8rem; white-space: pre-wrap; min-height: 32px;
+                       display: none; }
   </style>
 </head>
 <body>
@@ -44,6 +61,7 @@
     <section id="st-capture">
       <h2>Capture</h2>
       <textarea id="st-raw" placeholder="Paste your raw career material here — project notes, bullet points, or a brief description…"></textarea>
+      <div id="st-source-chips" aria-live="polite"></div>
       <div class="intent-row" id="st-intent">
         <strong style="font-size:.85rem;color:#555">Intent:</strong>
         <label><input type="radio" name="intent" value="resume" /> Resume bullet</label>
@@ -56,11 +74,36 @@
     <section>
       <h2>Preview</h2>
       <div id="st-preview">
-        <p class="placeholder">Your refined draft will appear here after you generate a preview.</p>
+        <p id="st-placeholder" class="placeholder">Your refined draft will appear here after you generate a preview.</p>
+        <div id="st-edit-fields" hidden>
+          <div class="edit-field">
+            <label for="st-edit-title">Title</label>
+            <input id="st-edit-title" type="text" />
+          </div>
+          <div class="edit-field">
+            <label for="st-edit-summary">Summary</label>
+            <textarea id="st-edit-summary" rows="3"></textarea>
+          </div>
+          <div class="edit-field" id="st-bullet-wrap" hidden>
+            <label for="st-edit-resume-bullet">Resume Bullet</label>
+            <textarea id="st-edit-resume-bullet" rows="2"></textarea>
+          </div>
+          <div class="edit-field" id="st-body-wrap" hidden>
+            <label for="st-edit-portfolio-body">Portfolio Narrative</label>
+            <textarea id="st-edit-portfolio-body" rows="8"></textarea>
+          </div>
+        </div>
       </div>
       <div id="st-missing-info"></div>
-      <button id="st-save-btn" onclick="save()">Save as draft card</button>
-      <div id="st-save-result" class="save-result"></div>
+      <button id="st-save-btn" onclick="save()" hidden>Save as draft card</button>
+      <div id="st-save-result" class="save-result" hidden></div>
+      <div id="st-post-save" hidden>
+        <p>Draft saved.</p>
+        <a id="st-action-dashboard" href="/dashboard">Open in Dashboard</a>
+        <button id="st-action-build-resume" onclick="buildCard('resume')">Build Resume</button>
+        <button id="st-action-build-portfolio" onclick="buildCard('portfolio')">Build Portfolio</button>
+        <pre id="st-build-output"></pre>
+      </div>
     </section>
   </main>
   <script src="/static/studio.js"></script>
