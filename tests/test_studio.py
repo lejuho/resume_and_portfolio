@@ -192,3 +192,14 @@ def test_studio_save_does_not_store_raw_input(client, repo):
     assert rv.status_code == 201
     saved = (repo / rv.get_json()["path"]).read_text(encoding="utf-8")
     assert "SENSITIVE_RAW_TEXT" not in saved
+
+
+def test_studio_save_does_not_persist_raw_body(client, repo):
+    raw = "My Awesome Project\nSECRET_BODY_PHRASE private rough notes that must never be stored"
+    rv_refine = client.post("/api/studio/refine", json={"raw_text": raw, "intent": "both"})
+    assert rv_refine.status_code == 200
+    draft = rv_refine.get_json()["draft"]
+    rv_save = client.post("/api/studio/save", json={"draft": draft})
+    assert rv_save.status_code == 201
+    saved = (repo / rv_save.get_json()["path"]).read_text(encoding="utf-8")
+    assert "SECRET_BODY_PHRASE" not in saved

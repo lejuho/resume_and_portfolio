@@ -347,7 +347,6 @@ def _title_to_slug(title: str) -> str:
 def _mock_refine(raw_text: str, intent: str) -> dict:
     lines = raw_text.strip().splitlines()
     title = lines[0].strip() if lines else "Untitled"
-    body_text = " ".join(ln.strip() for ln in lines[1:] if ln.strip())
 
     dates = _DATE_RE.findall(raw_text)
     urls = _URL_RE.findall(raw_text)
@@ -410,7 +409,7 @@ def _mock_refine(raw_text: str, intent: str) -> dict:
         "period_start": period_start,
         "status": "draft",
         "visibility": "public",
-        "summary": body_text[:200] if body_text else title,
+        "summary": title,
         "tags": {"domain": [], "skill": [], "audience": []},
         "metrics": metrics,
         "evidence": evidence,
@@ -424,11 +423,10 @@ def _mock_refine(raw_text: str, intent: str) -> dict:
         draft["resume_bullet"] = f"• Delivered {title}: achieved {m_val} result"
 
     if intent in ("portfolio", "both"):
-        body_or_default = body_text or "Context not provided."
         outcome = metric_hits[0] if metric_hits else "Outcome to be detailed."
         draft["portfolio_body"] = (
-            f"## Problem\n\n{body_or_default}\n\n"
-            f"## Framing\n\nDefined the problem as: {title}.\n\n"
+            f"## Problem\n\nChallenge: {title}.\n\n"
+            f"## Framing\n\nScope: {title}.\n\n"
             f"## Approach\n\nApproached this by breaking down the challenge systematically.\n\n"
             f"## Outcome\n\n{outcome}\n\n"
             f"## Insight\n\nKey learning from this work."
