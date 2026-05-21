@@ -579,3 +579,154 @@ def test_dashboard_has_new_card_button(client):
 def test_dashboard_has_edit_button(client):
     res = client.get("/")
     assert b"openEdit" in res.data or b"edit-btn" in res.data
+
+
+# ─── card detail editing: tags / metrics / evidence / visuals ─────────────────
+
+
+def test_update_card_tags(client, repo):
+    res = client.put(
+        "/api/cards/sample-card",
+        data=json.dumps(
+            {
+                "fields": {"tags": {"domain": ["web3"], "skill": ["python"], "audience": []}},
+                "body": "",
+            }
+        ),
+        content_type="application/json",
+    )
+    assert res.status_code == 200
+    content = (repo / "cards" / "2026-05-sample-card.mdx").read_text(encoding="utf-8")
+    assert "web3" in content
+    assert "python" in content
+
+
+def test_update_card_metrics(client, repo):
+    res = client.put(
+        "/api/cards/sample-card",
+        data=json.dumps(
+            {
+                "fields": {"metrics": ["10k users", "99% uptime"]},
+                "body": "",
+            }
+        ),
+        content_type="application/json",
+    )
+    assert res.status_code == 200
+    content = (repo / "cards" / "2026-05-sample-card.mdx").read_text(encoding="utf-8")
+    assert "10k users" in content
+
+
+def test_update_card_evidence(client, repo):
+    res = client.put(
+        "/api/cards/sample-card",
+        data=json.dumps(
+            {
+                "fields": {"evidence": [{"type": "repo", "url": "https://github.com/x/y"}]},
+                "body": "",
+            }
+        ),
+        content_type="application/json",
+    )
+    assert res.status_code == 200
+    content = (repo / "cards" / "2026-05-sample-card.mdx").read_text(encoding="utf-8")
+    assert "github.com/x/y" in content
+
+
+def test_update_card_invalid_evidence_type(client, repo):
+    card_path = repo / "cards" / "2026-05-sample-card.mdx"
+    original = card_path.read_text(encoding="utf-8")
+    res = client.put(
+        "/api/cards/sample-card",
+        data=json.dumps(
+            {
+                "fields": {"evidence": [{"type": "invalid_type", "url": "https://example.com"}]},
+                "body": "",
+            }
+        ),
+        content_type="application/json",
+    )
+    assert res.status_code == 422
+    assert card_path.read_text(encoding="utf-8") == original
+
+
+def test_update_card_visuals(client, repo):
+    res = client.put(
+        "/api/cards/sample-card",
+        data=json.dumps(
+            {
+                "fields": {
+                    "visuals": [{"path": "assets/hero.png", "role": "hero", "caption": "Hero"}]
+                },
+                "body": "",
+            }
+        ),
+        content_type="application/json",
+    )
+    assert res.status_code == 200
+    content = (repo / "cards" / "2026-05-sample-card.mdx").read_text(encoding="utf-8")
+    assert "assets/hero.png" in content
+
+
+def test_update_card_invalid_visual_role(client, repo):
+    card_path = repo / "cards" / "2026-05-sample-card.mdx"
+    original = card_path.read_text(encoding="utf-8")
+    res = client.put(
+        "/api/cards/sample-card",
+        data=json.dumps(
+            {
+                "fields": {"visuals": [{"path": "assets/img.png", "role": "invalid_role"}]},
+                "body": "",
+            }
+        ),
+        content_type="application/json",
+    )
+    assert res.status_code == 422
+    assert card_path.read_text(encoding="utf-8") == original
+
+
+def test_update_card_body(client, repo):
+    res = client.put(
+        "/api/cards/sample-card",
+        data=json.dumps(
+            {
+                "fields": {},
+                "body": "# Narrative\n\nThis is the body content.",
+            }
+        ),
+        content_type="application/json",
+    )
+    assert res.status_code == 200
+    content = (repo / "cards" / "2026-05-sample-card.mdx").read_text(encoding="utf-8")
+    assert "# Narrative" in content
+
+
+def test_get_card_includes_visual_hints(client, repo):
+    mdx_with_visuals = textwrap.dedent("""\
+        ---
+        id: visual-card
+        title: Visual Card
+        type: project
+        period:
+          start: 2026-04-01
+        status: draft
+        summary: Card with visuals.
+        visuals:
+          - path: assets/hero.png
+            role: hero
+            caption: Hero
+        ---
+    """)
+    (repo / "cards" / "2026-04-visual-card.mdx").write_text(mdx_with_visuals, encoding="utf-8")
+    res = client.get("/api/cards/visual-card")
+    assert res.status_code == 200
+    d = res.get_json()
+    assert "visual_hints" in d
+    assert "assets/hero.png" in d["visual_hints"]
+    assert d["visual_hints"]["assets/hero.png"] is False
+
+
+def test_dashboard_static_js_served(client):
+    res = client.get("/static/dashboard.js")
+    assert res.status_code == 200
+    assert b"render" in res.data

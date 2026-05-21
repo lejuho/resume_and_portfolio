@@ -22,7 +22,7 @@ _OUTPUT_PATH_RE = re.compile(
 _KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 REPO_ROOT = Path(__file__).parents[1]
-app = Flask(__name__, template_folder="templates")
+app = Flask(__name__, template_folder="templates", static_folder="static")
 
 
 def _parse_output_path(stdout: str) -> str | None:
@@ -147,7 +147,15 @@ def api_card_get(card_id: str):
         return jsonify({"ok": False, "error": "not found"}), 404
 
     post = fm.load(str(path))
-    return jsonify({"ok": True, "id": card_id, "fields": dict(post.metadata), "body": post.content})
+    fields = dict(post.metadata)
+    resp: dict[str, Any] = {"ok": True, "id": card_id, "fields": fields, "body": post.content}
+    if "visuals" in fields:
+        hints: dict[str, bool] = {}
+        for v in fields["visuals"] or []:
+            if isinstance(v, dict) and "path" in v:
+                hints[v["path"]] = (REPO_ROOT / v["path"]).exists()
+        resp["visual_hints"] = hints
+    return jsonify(resp)
 
 
 @app.route("/api/cards", methods=["POST"])
