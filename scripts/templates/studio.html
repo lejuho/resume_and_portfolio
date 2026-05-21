@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Career Studio</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; background: #f5f5f5; color: #222; }
+    header { background: #1a1a2e; color: #fff; padding: 12px 24px; display: flex; align-items: center; gap: 16px; }
+    header a { color: #aac; font-size: .85rem; text-decoration: none; }
+    header a:hover { text-decoration: underline; }
+    main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 20px 24px; max-width: 1200px; }
+    section { background: #fff; border-radius: 6px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+    h2 { margin: 0 0 12px; font-size: 1rem; color: #444; }
+    textarea { width: 100%; box-sizing: border-box; height: 260px; resize: vertical; font-size: .9rem;
+               border: 1px solid #ccc; border-radius: 4px; padding: 8px; }
+    .intent-row { display: flex; gap: 16px; margin: 10px 0; align-items: center; }
+    .intent-row label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+    button { padding: 8px 18px; border: none; border-radius: 4px; cursor: pointer; font-size: .9rem; }
+    #st-refine-btn { background: #1a1a2e; color: #fff; }
+    #st-refine-btn:hover { background: #2d2d4e; }
+    #st-save-btn { background: #2e7d32; color: #fff; margin-top: 12px; display: none; }
+    #st-save-btn:hover { background: #1b5e20; }
+    #st-preview { min-height: 160px; }
+    .preview-field { margin-bottom: 14px; }
+    .preview-field label { display: block; font-size: .75rem; color: #888; margin-bottom: 4px; text-transform: uppercase; }
+    .preview-field .val { font-size: .9rem; white-space: pre-wrap; background: #f9f9f9;
+                          border: 1px solid #eee; border-radius: 4px; padding: 8px; }
+    #st-missing-info { margin-top: 14px; }
+    .missing-item { background: #fff8e1; border: 1px solid #ffe082; border-radius: 4px;
+                    padding: 8px 12px; margin-bottom: 6px; font-size: .85rem; }
+    .missing-item .code { font-weight: 600; color: #795548; margin-right: 8px; }
+    .save-result { margin-top: 10px; padding: 8px 12px; border-radius: 4px; font-size: .85rem; display: none; }
+    .save-result.ok { background: #e8f5e9; border: 1px solid #a5d6a7; color: #2e7d32; }
+    .save-result.err { background: #ffebee; border: 1px solid #ef9a9a; color: #c62828; }
+    .placeholder { color: #aaa; font-style: italic; font-size: .9rem; padding: 8px 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Career Studio</strong>
+    <a href="/dashboard">← Dashboard</a>
+  </header>
+  <main>
+    <section id="st-capture">
+      <h2>Capture</h2>
+      <textarea id="st-raw" placeholder="Paste your raw career material here — project notes, bullet points, or a brief description…"></textarea>
+      <div class="intent-row" id="st-intent">
+        <strong style="font-size:.85rem;color:#555">Intent:</strong>
+        <label><input type="radio" name="intent" value="resume" /> Resume bullet</label>
+        <label><input type="radio" name="intent" value="portfolio" /> Portfolio narrative</label>
+        <label><input type="radio" name="intent" value="both" checked /> Both</label>
+      </div>
+      <button id="st-refine-btn" onclick="refine()">Generate preview</button>
+    </section>
+
+    <section>
+      <h2>Preview</h2>
+      <div id="st-preview">
+        <p class="placeholder">Your refined draft will appear here after you generate a preview.</p>
+      </div>
+      <div id="st-missing-info"></div>
+      <button id="st-save-btn" onclick="save()">Save as draft card</button>
+      <div id="st-save-result" class="save-result"></div>
+    </section>
+  </main>
+  <script src="/static/studio.js"></script>
+</body>
+</html>

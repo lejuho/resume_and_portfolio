@@ -20,6 +20,9 @@ _OUTPUT_PATH_RE = re.compile(
     re.IGNORECASE,
 )
 _KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+_DATE_RE = re.compile(r"\b(20\d{2})[-/](0[1-9]|1[0-2])\b")
+_URL_RE = re.compile(r"https?://\S+")
+_METRIC_RE = re.compile(r"\b\d+(?:\.\d+)?[kKmMbBx%]")
 
 REPO_ROOT = Path(__file__).parents[1]
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -200,7 +203,8 @@ def api_card_create():
     except PydanticValidationError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 422
 
-    post = fm.Post(content="", metadata=meta)
+    post = fm.Post(content="")
+    post.metadata = meta
     _write_card_atomic(target, post)
     return jsonify({"ok": True, "id": card_id, "path": str(target.relative_to(REPO_ROOT))}), 201
 
@@ -329,6 +333,187 @@ def api_build():
                 "selected_ids": selected_ids,
             }
         )
+
+
+def _title_to_slug(title: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+    if not slug or not _KEBAB_RE.match(slug):
+        return "studio-draft"
+    if slug[0].isdigit():
+        slug = f"draft-{slug}"
+    return slug
+
+
+def _mock_refine(raw_text: str, intent: str) -> dict:
+    lines = raw_text.strip().splitlines()
+    title = lines[0].strip() if lines else "Untitled"
+    body_text = " ".join(ln.strip() for ln in lines[1:] if ln.strip())
+
+    dates = _DATE_RE.findall(raw_text)
+    urls = _URL_RE.findall(raw_text)
+    metric_hits = _METRIC_RE.findall(raw_text)
+    has_visual_kw = any(
+        w in raw_text.lower()
+        for w in ("screenshot", "diagram", "image", "figure", "photo", "visual")
+    )
+
+    evidence = []
+    for url in urls:
+        ul = url.lower()
+        if "github.com" in ul or "gitlab.com" in ul:
+            kind = "repo"
+        elif "demo" in ul or url.startswith("https://app."):
+            kind = "demo"
+        else:
+            kind = "other"
+        evidence.append({"type": kind, "url": url})
+
+    metrics = list(metric_hits[:3])
+
+    if dates:
+        year, month = dates[0]
+        period_start = f"{year}-{month}-01"
+    else:
+        period_start = str(_date.today())
+
+    missing_info = []
+    if not dates:
+        missing_info.append(
+            {"code": "MISSING_PERIOD", "message": "No date found — when did this happen?"}
+        )
+    if not metric_hits:
+        missing_info.append(
+            {
+                "code": "MISSING_METRICS",
+                "message": "No metrics found — add numbers, percentages, or multipliers.",
+            }  # noqa: E501
+        )
+    if not evidence:
+        missing_info.append(
+            {
+                "code": "MISSING_EVIDENCE",
+                "message": "No URLs found — add a repo, demo, or reference link.",
+            }  # noqa: E501
+        )
+    if not has_visual_kw:
+        missing_info.append(
+            {
+                "code": "MISSING_VISUAL",
+                "message": "No visual context — add a screenshot, diagram, or image reference.",
+            }  # noqa: E501
+        )
+
+    draft: dict[str, Any] = {
+        "id": _title_to_slug(title),
+        "title": title,
+        "type": "project",
+        "period_start": period_start,
+        "status": "draft",
+        "visibility": "public",
+        "summary": body_text[:200] if body_text else title,
+        "tags": {"domain": [], "skill": [], "audience": []},
+        "metrics": metrics,
+        "evidence": evidence,
+        "visuals": [],
+        "links": [],
+        "related": [],
+    }
+
+    if intent in ("resume", "both"):
+        m_val = metric_hits[0] if metric_hits else "measurable impact"
+        draft["resume_bullet"] = f"• Delivered {title}: achieved {m_val} result"
+
+    if intent in ("portfolio", "both"):
+        body_or_default = body_text or "Context not provided."
+        outcome = metric_hits[0] if metric_hits else "Outcome to be detailed."
+        draft["portfolio_body"] = (
+            f"## Problem\n\n{body_or_default}\n\n"
+            f"## Framing\n\nDefined the problem as: {title}.\n\n"
+            f"## Approach\n\nApproached this by breaking down the challenge systematically.\n\n"
+            f"## Outcome\n\n{outcome}\n\n"
+            f"## Insight\n\nKey learning from this work."
+        )
+
+    return {"ok": True, "draft": draft, "missing_info": missing_info}
+
+
+@app.route("/dashboard")
+def dashboard() -> str:
+    return index()
+
+
+@app.route("/studio")
+def studio() -> str:
+    return render_template("studio.html")
+
+
+@app.route("/api/studio/refine", methods=["POST"])
+def api_studio_refine():
+    data = request.get_json(force=True) or {}
+    raw_text: str = data.get("raw_text", "")
+    intent: str = data.get("intent", "")
+
+    if not raw_text or not raw_text.strip():
+        return jsonify({"ok": False, "error": "raw_text is required"}), 400
+    if intent not in ("resume", "portfolio", "both"):
+        return jsonify({"ok": False, "error": "intent must be resume, portfolio, or both"}), 400
+
+    return jsonify(_mock_refine(raw_text, intent))
+
+
+@app.route("/api/studio/save", methods=["POST"])
+def api_studio_save():
+    from scripts.card import Card
+
+    data = request.get_json(force=True) or {}
+    draft = data.get("draft")
+    if not isinstance(draft, dict):
+        return jsonify({"ok": False, "error": "draft is required"}), 400
+
+    title = draft.get("title", "")
+    if not title:
+        return jsonify({"ok": False, "error": "draft.title is required"}), 400
+
+    card_id = _title_to_slug(title)
+    period_start = draft.get("period_start") or str(_date.today())
+
+    target = _new_card_path(card_id, period_start)
+    if target is None:
+        return jsonify({"ok": False, "error": "could not resolve card path"}), 400
+
+    cards_dir = (REPO_ROOT / "cards").resolve()
+    if any(cards_dir.glob(f"????-??-{card_id}.mdx")):
+        return jsonify({"ok": False, "error": f"card id {card_id!r} already exists"}), 409
+
+    meta: dict[str, Any] = {
+        "id": card_id,
+        "title": title,
+        "type": draft.get("type", "project"),
+        "period": {"start": period_start, "end": None},
+        "status": "draft",
+        "visibility": "public",
+        "tags": draft.get("tags") or {"domain": [], "skill": [], "audience": []},
+        "metrics": draft.get("metrics") or [],
+        "summary": draft.get("summary") or "",
+        "summary_ko": None,
+        "narrative": draft.get("resume_bullet") or None,
+        "visuals": [],
+        "evidence": draft.get("evidence") or [],
+        "links": [],
+        "related": [],
+    }
+
+    try:
+        Card.model_validate(meta)
+    except PydanticValidationError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 422
+
+    body_content = draft.get("portfolio_body") or ""
+    post = fm.Post(content=body_content)
+    post.metadata = meta
+    _write_card_atomic(target, post)
+
+    return jsonify({"ok": True, "id": card_id, "path": str(target.relative_to(REPO_ROOT))}), 201
 
 
 def run_server(host: str = "127.0.0.1", port: int = 5000, debug: bool = False) -> None:
