@@ -576,6 +576,13 @@ def test_dashboard_has_new_card_button(client):
     assert b"New card" in res.data or b"new-card" in res.data
 
 
+def test_dashboard_has_studio_nav(client):
+    res = client.get("/dashboard")
+    assert res.status_code == 200
+    assert b'id="btn-studio"' in res.data
+    assert b'href="/studio"' in res.data
+
+
 def test_dashboard_has_edit_button(client):
     res = client.get("/")
     assert b"openEdit" in res.data or b"edit-btn" in res.data

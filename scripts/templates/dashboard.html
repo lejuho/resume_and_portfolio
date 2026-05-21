@@ -13,6 +13,10 @@ header { background: #111; padding: 8px 16px; display: flex;
 header h1 { font-size: 14px; color: #aaa; }
 #header-right { display: flex; align-items: center; gap: 12px; }
 #sel-count { color: #4fc; font-weight: bold; }
+#btn-studio { background: #1a2230; border: 1px solid #2c405d; color: #9ecbff;
+              padding: 3px 10px; font-family: monospace; font-size: 11px;
+              text-decoration: none; }
+#btn-studio:hover { background: #202b3d; color: #cfe5ff; }
 #btn-new-card { background: #1a2a1a; border: 1px solid #2a4a2a; color: #4fc;
                 padding: 3px 10px; font-family: monospace; font-size: 11px; cursor: pointer; }
 #btn-new-card:hover { background: #1e321e; }
@@ -147,6 +151,7 @@ details summary:hover { color: #888; }
 <header>
   <h1>pcli dashboard</h1>
   <div id="header-right">
+    <a id="btn-studio" href="/studio">Studio</a>
     <button id="btn-new-card" onclick="openNew()">+ New card</button>
     <span id="sel-count">0 selected</span>
   </div>
