@@ -410,58 +410,47 @@ For the next Studio cycle, these remain out of scope:
 - Invalid card edits are rejected.
 - Build actions do not mutate card files.
 
-## 12. Open Decisions
+## 12. Cycle 11 Decisions
 
-Only these items need product decision before or during Cycle 11.
+These decisions are fixed for the first Studio implementation cycle.
 
-### OD-001: Studio AI fallback behavior
+### D-001: Studio AI fallback behavior
 
-If no `ANTHROPIC_API_KEY` is available, should `/studio`:
+If no `ANTHROPIC_API_KEY` is available, `/studio` must use a deterministic demo/mock refinement path.
 
-1. show a deterministic demo/mock refinement, or
-2. disable refinement and show setup instructions?
+Rationale:
 
-Recommended: deterministic demo/mock refinement for Cycle 11, because it keeps UI development testable.
+- keeps UI development testable
+- avoids making the first Studio cycle dependent on live API configuration
+- preserves the review-before-save workflow
 
-### OD-002: First Studio save behavior
+### D-002: First Studio save behavior
 
-Should the first Studio MVP:
+The first Studio MVP must create new draft cards only.
 
-1. only create new draft cards, or
-2. also update an existing selected card?
+Updating an existing selected card from Studio is out of scope for Cycle 11. Existing card editing remains available in `/dashboard`.
 
-Recommended: create new draft cards only for Cycle 11.
+### D-003: Raw input persistence
 
-### OD-003: Raw input persistence
+Studio must save refined narrative into the canonical card body.
 
-Should raw pasted input be stored in the card body/a metadata field after save?
+Raw pasted input should not be stored in the canonical card by default. A future cycle may add an explicit "include raw notes" option or a separate source-memory store.
 
-Options:
+### D-004: Visual input in Studio MVP
 
-1. store raw input in markdown body
-2. store only refined narrative
-3. store raw input in a separate internal field
+Studio MVP should not implement image upload or asset picking.
 
-Recommended: store refined narrative in body and keep raw input out of canonical card unless user chooses to include it.
+Visual input is out of scope for Cycle 11 unless represented as plain text in the raw input and surfaced only as a missing-info prompt. Asset path editing remains available in `/dashboard`.
 
-### OD-004: Visual input in Studio MVP
+### D-005: Route naming
 
-Should Studio MVP support visual references?
+The light creation experience route is:
 
-Options:
+```text
+/studio
+```
 
-1. no visual handling in Studio MVP
-2. accept text paths only
-3. implement upload/picker
+Rationale:
 
-Recommended: no visual handling or text paths only. Upload/picker should wait.
-
-### OD-005: Route naming
-
-Should the light experience be named:
-
-1. `/studio`
-2. `/inbox`
-3. `/capture`
-
-Recommended: `/studio`, because it covers capture, refinement, and output preview.
+- covers capture, refinement, preview, and output preparation
+- distinct from the existing admin `/dashboard`
