@@ -149,6 +149,11 @@ function openNew() {
   document.getElementById('af-tag-skill').value = '';
   document.getElementById('af-tag-audience').value = '';
   _clearLists();
+  document.getElementById('af-metrics-section').hidden = true;
+  document.getElementById('af-evidence-section').hidden = true;
+  document.getElementById('af-visuals-section').hidden = true;
+  document.getElementById('af-body-field').hidden = true;
+  document.getElementById('af-detail-hint').hidden = false;
   document.getElementById('af-body').value = '';
   document.getElementById('af-status-msg').textContent = '';
   document.getElementById('authoring-panel').hidden = false;
@@ -163,6 +168,11 @@ async function openEdit(cardId) {
   document.getElementById('af-status-msg').textContent = 'Loading…';
   document.getElementById('authoring-panel').hidden = false;
   _clearLists();
+  document.getElementById('af-metrics-section').hidden = false;
+  document.getElementById('af-evidence-section').hidden = false;
+  document.getElementById('af-visuals-section').hidden = false;
+  document.getElementById('af-body-field').hidden = false;
+  document.getElementById('af-detail-hint').hidden = true;
   try {
     const r = await fetch(`/api/cards/${encodeURIComponent(cardId)}`);
     const d = await r.json();

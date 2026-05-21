@@ -651,6 +651,8 @@ def test_update_card_invalid_evidence_type(client, repo):
 
 
 def test_update_card_visuals(client, repo):
+    (repo / "assets").mkdir()
+    (repo / "assets" / "hero.png").write_bytes(b"")
     res = client.put(
         "/api/cards/sample-card",
         data=json.dumps(
@@ -730,3 +732,47 @@ def test_dashboard_static_js_served(client):
     res = client.get("/static/dashboard.js")
     assert res.status_code == 200
     assert b"render" in res.data
+
+
+# ─── visual path existence validation ────────────────────────────────────────
+
+
+def test_update_card_missing_visual_path_rejected(client, repo):
+    card_path = repo / "cards" / "2026-05-sample-card.mdx"
+    original = card_path.read_text(encoding="utf-8")
+    res = client.put(
+        "/api/cards/sample-card",
+        data=json.dumps(
+            {
+                "fields": {"visuals": [{"path": "assets/missing.png", "role": "hero"}]},
+                "body": "",
+            }
+        ),
+        content_type="application/json",
+    )
+    assert res.status_code == 422
+    assert "does not exist" in res.get_json()["error"]
+    assert card_path.read_text(encoding="utf-8") == original
+
+
+def test_update_card_existing_visual_path_succeeds(client, repo):
+    (repo / "assets").mkdir()
+    (repo / "assets" / "hero.png").write_bytes(b"")
+    res = client.put(
+        "/api/cards/sample-card",
+        data=json.dumps(
+            {
+                "fields": {
+                    "visuals": [{"path": "assets/hero.png", "role": "hero", "caption": "Hero"}]
+                },
+                "body": "",
+            }
+        ),
+        content_type="application/json",
+    )
+    assert res.status_code == 200
+
+
+def test_dashboard_has_detail_hint(client):
+    res = client.get("/")
+    assert b"af-detail-hint" in res.data

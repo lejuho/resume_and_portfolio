@@ -200,15 +200,18 @@ details summary:hover { color: #888; }
       <input type="text" id="af-tag-audience" placeholder="engineers, recruiters">
     </div>
   </div>
-  <div class="af-dyn-section">
+  <div id="af-detail-hint" hidden style="font-size:10px;color:#555;margin-bottom:8px">
+    Detail fields available after first save.
+  </div>
+  <div class="af-dyn-section" id="af-metrics-section">
     <div class="af-dyn-header">Metrics <button class="af-add-btn" onclick="addMetric()">+ add</button></div>
     <div id="af-metrics-list"></div>
   </div>
-  <div class="af-dyn-section">
+  <div class="af-dyn-section" id="af-evidence-section">
     <div class="af-dyn-header">Evidence <button class="af-add-btn" onclick="addEvidence()">+ add</button></div>
     <div id="af-evidence-list"></div>
   </div>
-  <div class="af-dyn-section">
+  <div class="af-dyn-section" id="af-visuals-section">
     <div class="af-dyn-header">Visuals <button class="af-add-btn" onclick="addVisual()">+ add</button></div>
     <div id="af-visuals-list"></div>
   </div>

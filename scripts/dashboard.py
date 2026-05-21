@@ -234,6 +234,13 @@ def api_card_update(card_id: str):
     except PydanticValidationError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 422
 
+    if "visuals" in incoming_fields:
+        for v in incoming_fields["visuals"] or []:
+            if isinstance(v, dict) and "path" in v:
+                if not (REPO_ROOT / v["path"]).exists():
+                    msg = f"visual path does not exist: {v['path']}"
+                    return jsonify({"ok": False, "error": msg}), 422
+
     post.metadata = merged
     post.content = body
 
