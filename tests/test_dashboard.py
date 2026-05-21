@@ -776,3 +776,36 @@ def test_update_card_existing_visual_path_succeeds(client, repo):
 def test_dashboard_has_detail_hint(client):
     res = client.get("/")
     assert b"af-detail-hint" in res.data
+
+
+# ─── visual path containment validation ──────────────────────────────────────
+
+
+def test_update_card_absolute_visual_path_rejected(client, repo):
+    import sys
+
+    card_path = repo / "cards" / "2026-05-sample-card.mdx"
+    original = card_path.read_text(encoding="utf-8")
+    abs_path = sys.executable  # guaranteed-existing absolute path
+    res = client.put(
+        "/api/cards/sample-card",
+        data=json.dumps({"fields": {"visuals": [{"path": abs_path, "role": "other"}]}, "body": ""}),
+        content_type="application/json",
+    )
+    assert res.status_code == 422
+    assert "relative" in res.get_json()["error"]
+    assert card_path.read_text(encoding="utf-8") == original
+
+
+def test_update_card_traversal_visual_path_rejected(client, repo):
+    card_path = repo / "cards" / "2026-05-sample-card.mdx"
+    original = card_path.read_text(encoding="utf-8")
+    res = client.put(
+        "/api/cards/sample-card",
+        data=json.dumps(
+            {"fields": {"visuals": [{"path": "../outside.png", "role": "other"}]}, "body": ""}
+        ),
+        content_type="application/json",
+    )
+    assert res.status_code == 422
+    assert card_path.read_text(encoding="utf-8") == original
