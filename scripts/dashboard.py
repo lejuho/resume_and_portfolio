@@ -456,7 +456,17 @@ def api_studio_refine():
     if intent not in ("resume", "portfolio", "both"):
         return jsonify({"ok": False, "error": "intent must be resume, portfolio, or both"}), 400
 
-    return jsonify(_mock_refine(raw_text, intent))
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        try:
+            from scripts.llm import studio_refine_llm
+
+            return jsonify(studio_refine_llm(raw_text, intent))
+        except Exception:
+            pass  # fall through to mock on any LLM failure
+
+    result = _mock_refine(raw_text, intent)
+    result["draft"]["refine_source"] = "mock"
+    return jsonify(result)
 
 
 @app.route("/api/studio/save", methods=["POST"])
