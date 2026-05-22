@@ -194,3 +194,95 @@ def test_refine_llm_draft_saves_and_validates(client, repo, monkeypatch):
     repo_obj = CardRepo(repo)
     ids = [c.id for c in repo_obj.cards]
     assert draft["id"] in ids
+
+
+def test_refine_llm_overlong_summary_is_capped(client, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
+    long_summary = "x" * 250
+    fake = _fake_client({"summary": long_summary})
+    monkeypatch.setattr(llm_mod, "_build_client", lambda: fake)
+    monkeypatch.setattr(llm_mod, "_cache_read", lambda *a, **k: None)
+    monkeypatch.setattr(llm_mod, "_cache_write", lambda *a, **k: None)
+    rv = client.post(
+        "/api/studio/refine", json={"raw_text": "Long summary project", "intent": "both"}
+    )
+    assert rv.status_code == 200
+    draft = rv.get_json()["draft"]
+    assert len(draft["summary"]) <= 200
+
+
+def test_refine_llm_overlong_summary_draft_saves(client, repo, monkeypatch):
+    from scripts.card import CardRepo
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
+    long_summary = "x" * 250
+    fake = _fake_client(
+        {
+            "summary": long_summary,
+            "resume_bullet": "• Delivered project",
+            "portfolio_body": (
+                "## Problem\n\nX.\n\n## Framing\n\nY.\n\n"
+                "## Approach\n\nZ.\n\n## Outcome\n\nW.\n\n## Insight\n\nV."
+            ),
+        }
+    )
+    monkeypatch.setattr(llm_mod, "_build_client", lambda: fake)
+    monkeypatch.setattr(llm_mod, "_cache_read", lambda *a, **k: None)
+    monkeypatch.setattr(llm_mod, "_cache_write", lambda *a, **k: None)
+    rv_refine = client.post(
+        "/api/studio/refine", json={"raw_text": "Long summary project", "intent": "both"}
+    )
+    assert rv_refine.status_code == 200
+    draft = rv_refine.get_json()["draft"]
+    rv_save = client.post("/api/studio/save", json={"draft": draft})
+    assert rv_save.status_code == 201
+    assert draft["id"] in [c.id for c in CardRepo(repo).cards]
+
+
+def test_refine_llm_invalid_evidence_type_normalizes_to_other(client, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
+    fake = _fake_client(
+        {
+            "evidence": [
+                {"type": "github", "url": "https://github.com/example/auth"},
+                {"type": "repo", "url": "https://github.com/example/valid"},
+            ]
+        }
+    )
+    monkeypatch.setattr(llm_mod, "_build_client", lambda: fake)
+    monkeypatch.setattr(llm_mod, "_cache_read", lambda *a, **k: None)
+    monkeypatch.setattr(llm_mod, "_cache_write", lambda *a, **k: None)
+    rv = client.post("/api/studio/refine", json={"raw_text": "Evidence test", "intent": "both"})
+    assert rv.status_code == 200
+    evidence = rv.get_json()["draft"]["evidence"]
+    types = [e["type"] for e in evidence]
+    assert "github" not in types
+    assert types[0] == "other"
+    assert types[1] == "repo"
+
+
+def test_refine_llm_invalid_evidence_type_draft_saves(client, repo, monkeypatch):
+    from scripts.card import CardRepo
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
+    fake = _fake_client(
+        {
+            "evidence": [{"type": "github", "url": "https://github.com/example/auth"}],
+            "resume_bullet": "• Delivered project",
+            "portfolio_body": (
+                "## Problem\n\nX.\n\n## Framing\n\nY.\n\n"
+                "## Approach\n\nZ.\n\n## Outcome\n\nW.\n\n## Insight\n\nV."
+            ),
+        }
+    )
+    monkeypatch.setattr(llm_mod, "_build_client", lambda: fake)
+    monkeypatch.setattr(llm_mod, "_cache_read", lambda *a, **k: None)
+    monkeypatch.setattr(llm_mod, "_cache_write", lambda *a, **k: None)
+    rv_refine = client.post(
+        "/api/studio/refine", json={"raw_text": "Evidence test", "intent": "both"}
+    )
+    assert rv_refine.status_code == 200
+    draft = rv_refine.get_json()["draft"]
+    rv_save = client.post("/api/studio/save", json={"draft": draft})
+    assert rv_save.status_code == 201
+    assert draft["id"] in [c.id for c in CardRepo(repo).cards]

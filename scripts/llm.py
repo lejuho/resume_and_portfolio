@@ -183,6 +183,7 @@ def rewrite_summary(
 _VALID_TYPES = frozenset(
     {"project", "talk", "paper", "hackathon", "role", "award", "writing", "course", "community"}
 )
+_VALID_EVIDENCE_TYPES = frozenset({"repo", "deck", "writeup", "demo", "article", "other"})
 
 _STUDIO_REFINE_PROMPT = """\
 You are a career coach extracting structured information from raw career notes.
@@ -251,7 +252,7 @@ def studio_refine_llm(
     card_type = raw_parsed.get("type", "project")
     if card_type not in _VALID_TYPES:
         card_type = "project"
-    summary = str(raw_parsed.get("summary") or title)[:300]
+    summary = str(raw_parsed.get("summary") or title)[:200]
     tags_raw = raw_parsed.get("tags") or {}
     tags = {
         "domain": [str(t) for t in (tags_raw.get("domain") or [])],
@@ -261,7 +262,12 @@ def studio_refine_llm(
     metrics = [str(m) for m in (raw_parsed.get("metrics") or [])][:5]
     evidence_raw = raw_parsed.get("evidence") or []
     evidence = [
-        {"type": str(e.get("type", "other")), "url": str(e.get("url", ""))}
+        {
+            "type": str(e.get("type", "other"))
+            if str(e.get("type", "other")) in _VALID_EVIDENCE_TYPES
+            else "other",
+            "url": str(e.get("url", "")),
+        }
         for e in evidence_raw
         if isinstance(e, dict) and e.get("url")
     ]
