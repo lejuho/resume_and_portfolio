@@ -583,6 +583,16 @@ def test_dashboard_has_studio_nav(client):
     assert b'href="/studio"' in res.data
 
 
+def test_dashboard_has_status_descriptions(client):
+    res = client.get("/dashboard")
+    assert res.status_code == 200
+    # compact help text explaining what each status filter means
+    assert b"status-help" in res.data
+    assert b"work in progress" in res.data
+    assert b"ready for output" in res.data
+    assert b"kept but hidden" in res.data
+
+
 def test_dashboard_has_edit_button(client):
     res = client.get("/")
     assert b"openEdit" in res.data or b"edit-btn" in res.data

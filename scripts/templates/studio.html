@@ -10,7 +10,8 @@
     header a:hover { text-decoration: underline; }
     main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 20px 24px; max-width: 1200px; }
     section { background: #fff; border-radius: 6px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
-    h2 { margin: 0 0 12px; font-size: 1rem; color: #444; }
+    h2 { margin: 0 0 4px; font-size: 1rem; color: #444; }
+    .flow-note { margin: 0 0 12px; font-size: .78rem; color: #888; }
     textarea { width: 100%; box-sizing: border-box; resize: vertical; font-size: .9rem;
                border: 1px solid #ccc; border-radius: 4px; padding: 8px; }
     #st-raw { height: 220px; }
@@ -43,6 +44,7 @@
     #st-post-save { margin-top: 16px; padding: 14px; background: #f1f8e9; border: 1px solid #c5e1a5;
                     border-radius: 6px; }
     #st-post-save p { margin: 0 0 10px; font-weight: 600; color: #2e7d32; }
+    #st-post-save p.flow-note { font-weight: 400; color: #888; }
     #st-post-save a { display: inline-block; margin-right: 8px; color: #1a1a2e; font-size: .85rem; }
     #st-post-save button { background: #1a1a2e; color: #fff; font-size: .85rem; padding: 6px 14px;
                            margin-right: 6px; }
@@ -59,7 +61,8 @@
   </header>
   <main>
     <section id="st-capture">
-      <h2>Capture</h2>
+      <h2>Career Memory</h2>
+      <p class="flow-note">loose memory &rarr; refined draft &rarr; saved card &rarr; generated outputs</p>
       <textarea id="st-raw" placeholder="Paste your raw career material here — project notes, bullet points, or a brief description…"></textarea>
       <div id="st-source-chips" aria-live="polite"></div>
       <div class="intent-row" id="st-intent">
@@ -99,6 +102,7 @@
       <div id="st-save-result" class="save-result" hidden></div>
       <div id="st-post-save" hidden>
         <p>Draft saved.</p>
+        <p class="flow-note">Saved as Draft. Mark it Live in Dashboard when it is ready for normal output generation.</p>
         <a id="st-action-dashboard" href="/dashboard">Open in Dashboard</a>
         <button id="st-action-build-resume" onclick="buildCard('resume')">Build Resume</button>
         <button id="st-action-build-portfolio" onclick="buildCard('portfolio')">Build Portfolio</button>

@@ -321,3 +321,23 @@ def test_studio_js_resets_save_btn_on_render(client):
     # renderPreview must restore the save button for a second refine→save flow
     assert b"disabled = false" in rv.data
     assert b'"Save as draft card"' in rv.data
+
+
+# ─── Cycle 13: UX language ────────────────────────────────────────────────────
+
+
+def test_studio_has_career_memory_language(client):
+    rv = client.get("/studio")
+    assert rv.status_code == 200
+    assert b"Career Memory" in rv.data
+    # one-line flow description guiding the user through the studio pipeline
+    assert b"refined draft" in rv.data
+    assert b"generated outputs" in rv.data
+
+
+def test_studio_save_success_has_draft_guidance(client):
+    rv = client.get("/studio")
+    assert rv.status_code == 200
+    # post-save panel explains the Draft status and how to promote to Live
+    assert b"st-post-save" in rv.data
+    assert b"Mark it Live in Dashboard" in rv.data

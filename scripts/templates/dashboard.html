@@ -145,6 +145,10 @@ details summary:hover { color: #888; }
            color: #777; margin-top: 4px; }
 .errors { background: #200; border-left: 3px solid #600; padding: 6px 12px; margin: 8px;
           font-size: 11px; color: #f77; flex-shrink: 0; }
+#status-help { font-size: 10px; color: #666; line-height: 1.5; margin-top: 4px; }
+#status-help dt { display: inline; font-weight: bold; }
+#status-help dd { display: inline; margin: 0; }
+#status-help div { margin-bottom: 2px; }
 </style>
 </head>
 <body>
@@ -241,6 +245,11 @@ details summary:hover { color: #888; }
       <label><input type="radio" name="st" value="draft"> draft</label>
       <label><input type="radio" name="st" value="archived"> archived</label>
     </div>
+    <dl id="status-help">
+      <div><dt>Draft:</dt> <dd>work in progress</dd></div>
+      <div><dt>Live:</dt> <dd>ready for output</dd></div>
+      <div><dt>Archived:</dt> <dd>kept but hidden</dd></div>
+    </dl>
     <h3>Tag</h3>
     <input type="text" id="tag-filter" placeholder="web3, solana…">
     <h3>Search</h3>
