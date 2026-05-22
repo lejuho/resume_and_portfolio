@@ -28,6 +28,33 @@ REPO_ROOT = Path(__file__).parents[1]
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
 
+def _load_dotenv(path: Path) -> None:
+    """Load KEY=value pairs from a .env file without overwriting existing env vars."""
+    if not path.exists():
+        return
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.split("#")[0].strip()  # strip inline comments
+            if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+                val = val[1:-1]
+            if not key or key in os.environ:
+                continue
+            os.environ[key] = val
+    except Exception:
+        pass  # malformed .env must not prevent startup
+
+
+_load_dotenv(REPO_ROOT / ".env")
+_load_dotenv(REPO_ROOT / ".env.local")
+
+
 def _parse_output_path(stdout: str) -> str | None:
     """Return the first output file path found in build stdout, or None."""
     for line in stdout.splitlines():
@@ -443,6 +470,30 @@ def dashboard() -> str:
 @app.route("/studio")
 def studio() -> str:
     return render_template("studio.html")
+
+
+@app.route("/api/studio/ai-status")
+def api_studio_ai_status():
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or ""
+    configured = bool(api_key)
+    if configured:
+        try:
+            from scripts.llm import MODEL
+
+            return jsonify(
+                {
+                    "ok": True,
+                    "configured": True,
+                    "provider": "anthropic",
+                    "mode": "llm",
+                    "model": MODEL,
+                }
+            )
+        except Exception:
+            pass  # llm.py import failure → fall through to mock
+    return jsonify(
+        {"ok": True, "configured": False, "provider": "anthropic", "mode": "mock", "model": None}
+    )
 
 
 @app.route("/api/studio/refine", methods=["POST"])

@@ -1,5 +1,8 @@
 output/
 .cache/
+.env
+.env.local
+.env.*.local
 .build/
 profile.yaml
 *.pdf

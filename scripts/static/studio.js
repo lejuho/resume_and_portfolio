@@ -14,7 +14,24 @@ document.addEventListener("DOMContentLoaded", () => {
     clearTimeout(_chipTimer);
     _chipTimer = setTimeout(detectChips, 200);
   });
+  _fetchAiStatus();
 });
+
+async function _fetchAiStatus() {
+  const el = document.getElementById("st-ai-status");
+  if (!el) return;
+  try {
+    const resp = await fetch("/api/studio/ai-status");
+    const data = await resp.json();
+    if (data.configured) {
+      el.textContent = "AI: connected";
+    } else {
+      el.textContent = "AI: mock fallback";
+    }
+  } catch (_) {
+    el.textContent = "AI: unavailable";
+  }
+}
 
 function detectChips() {
   const raw = document.getElementById("st-raw").value;
@@ -102,6 +119,13 @@ function renderPreview(draft, missingInfo) {
       `<span class="mi-code">${_esc(item.code)}</span>` +
       `<span class="mi-message">${_esc(item.message)}</span>`;
     miDiv.appendChild(el);
+  }
+
+  const sourceEl = document.getElementById("st-refine-source");
+  if (sourceEl) {
+    const label = draft.refine_source === "llm" ? "Source: LLM" : "Source: Mock";
+    sourceEl.textContent = label;
+    sourceEl.hidden = false;
   }
 
   const saveBtn = document.getElementById("st-save-btn");
