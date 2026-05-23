@@ -13,6 +13,7 @@ from typing import Optional
 from .card import Card
 
 MODEL = "claude-sonnet-4-6"
+MODEL_GOOGLE = "gemini-2.5-flash"
 _SCHEMA_VER = 2
 
 
@@ -48,7 +49,7 @@ def _cache_write(key: str, data: dict, cache_dir: Path) -> None:
 
 # ─── provider config ───────────────────────────────────────────────────────
 
-_SUPPORTED_PROVIDERS = frozenset({"anthropic"})
+_SUPPORTED_PROVIDERS = frozenset({"anthropic", "google"})
 _PLACEHOLDER_API_KEYS = frozenset(
     {
         "your_key_here",
@@ -81,8 +82,18 @@ def resolve_provider_config() -> dict:
     """
     provider = (os.environ.get("AI_PROVIDER") or "anthropic").strip().lower()
     raw_model = (os.environ.get("AI_MODEL") or "").strip()
-    model = raw_model if raw_model else MODEL
-    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("AI_API_KEY") or ""
+    if provider == "google":
+        default_model = MODEL_GOOGLE
+        api_key = (
+            os.environ.get("GOOGLE_API_KEY")
+            or os.environ.get("GEMINI_API_KEY")
+            or os.environ.get("AI_API_KEY")
+            or ""
+        )
+    else:
+        default_model = MODEL
+        api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("AI_API_KEY") or ""
+    model = raw_model if raw_model else default_model
     return {"provider": provider, "model": model, "api_key": api_key}
 
 
@@ -96,7 +107,14 @@ def _build_client(config: dict | None = None):
     if provider not in _SUPPORTED_PROVIDERS:
         raise LLMError(f"unsupported provider: {provider!r}")
     if not is_api_key_configured(api_key):
-        raise LLMError("ANTHROPIC_API_KEY or AI_API_KEY is not set")
+        raise LLMError(f"{provider.upper()}_API_KEY or AI_API_KEY is not set")
+    if provider == "google":
+        try:
+            from google import genai  # type: ignore[import]
+
+            return genai.Client(api_key=api_key)
+        except ImportError as exc:
+            raise LLMError("google-genai package not installed; run: uv sync --extra llm") from exc
     try:
         from anthropic import Anthropic  # type: ignore[import]
 
@@ -106,6 +124,23 @@ def _build_client(config: dict | None = None):
 
 
 def _call(client, prompt: str, model: str = MODEL) -> str:
+    try:
+        from google import genai as _genai  # type: ignore[import]
+
+        _google_client_type = _genai.Client
+    except ImportError:
+        _google_client_type = None  # type: ignore[assignment]
+
+    if _google_client_type is not None and isinstance(client, _google_client_type):
+        response = client.models.generate_content(model=model, contents=prompt)
+        try:
+            text = response.text
+        except AttributeError:
+            text = None
+        if not text:
+            raise LLMError("google: empty response (safety filter or blocked)")
+        return text
+
     response = client.messages.create(
         model=model,
         max_tokens=1024,
