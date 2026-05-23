@@ -269,7 +269,8 @@ def studio_refine_llm(
     if card_type not in _VALID_TYPES:
         card_type = "project"
     summary = str(raw_parsed.get("summary") or title)[:200]
-    tags_raw = raw_parsed.get("tags") or {}
+    tags_raw = raw_parsed.get("tags")
+    tags_raw = tags_raw if isinstance(tags_raw, dict) else {}
     tags = {
         "domain": [str(t) for t in (tags_raw.get("domain") or [])],
         "skill": [str(t) for t in (tags_raw.get("skill") or [])],

@@ -148,6 +148,22 @@ def test_narrative_field_non_string_coerced(monkeypatch):
     assert result["draft"]["approach"] == ""
 
 
+def test_malformed_tags_list_coerces_to_empty_buckets(monkeypatch):
+    fake = _fake_client({"tags": ["backend"]})
+    monkeypatch.setattr(llm_mod, "_cache_read", lambda *a, **k: None)
+    monkeypatch.setattr(llm_mod, "_cache_write", lambda *a, **k: None)
+    result = studio_refine_llm("Auth rebuild", "both", client=fake)
+    assert result["draft"]["tags"] == {"domain": [], "skill": [], "audience": []}
+
+
+def test_malformed_tags_string_coerces_to_empty_buckets(monkeypatch):
+    fake = _fake_client({"tags": "backend"})
+    monkeypatch.setattr(llm_mod, "_cache_read", lambda *a, **k: None)
+    monkeypatch.setattr(llm_mod, "_cache_write", lambda *a, **k: None)
+    result = studio_refine_llm("Auth rebuild", "both", client=fake)
+    assert result["draft"]["tags"] == {"domain": [], "skill": [], "audience": []}
+
+
 # ─── Integration: API endpoint ────────────────────────────────────────────────
 
 
