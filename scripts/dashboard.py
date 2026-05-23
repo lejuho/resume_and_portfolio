@@ -474,7 +474,7 @@ def studio() -> str:
 
 @app.route("/api/studio/ai-status")
 def api_studio_ai_status():
-    api_key = os.environ.get("ANTHROPIC_API_KEY") or ""
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("AI_API_KEY") or ""
     configured = bool(api_key)
     if configured:
         try:
@@ -507,7 +507,7 @@ def api_studio_refine():
     if intent not in ("resume", "portfolio", "both"):
         return jsonify({"ok": False, "error": "intent must be resume, portfolio, or both"}), 400
 
-    if os.environ.get("ANTHROPIC_API_KEY"):
+    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("AI_API_KEY"):
         try:
             from scripts.llm import studio_refine_llm
 

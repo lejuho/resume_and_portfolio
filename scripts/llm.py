@@ -49,10 +49,14 @@ def _cache_write(key: str, data: dict, cache_dir: Path) -> None:
 # ─── client ────────────────────────────────────────────────────────────────
 
 
+def _configured_api_key() -> str:
+    return os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("AI_API_KEY") or ""
+
+
 def _build_client():
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    api_key = _configured_api_key()
     if not api_key:
-        raise LLMError("ANTHROPIC_API_KEY is not set")
+        raise LLMError("ANTHROPIC_API_KEY or AI_API_KEY is not set")
     try:
         from anthropic import Anthropic  # type: ignore[import]
 

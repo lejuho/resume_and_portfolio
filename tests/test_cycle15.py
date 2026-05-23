@@ -84,6 +84,7 @@ def test_gitignore_includes_dotenv():
 
 def test_ai_status_unconfigured(client, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
     rv = client.get("/api/studio/ai-status")
     assert rv.status_code == 200
     body = rv.get_json()
@@ -95,6 +96,7 @@ def test_ai_status_unconfigured(client, monkeypatch):
 
 def test_ai_status_configured(client, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake-key")
+    monkeypatch.delenv("AI_API_KEY", raising=False)
     rv = client.get("/api/studio/ai-status")
     assert rv.status_code == 200
     body = rv.get_json()
@@ -106,6 +108,7 @@ def test_ai_status_configured(client, monkeypatch):
 
 def test_ai_status_does_not_leak_key(client, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret-12345")
+    monkeypatch.delenv("AI_API_KEY", raising=False)
     rv = client.get("/api/studio/ai-status")
     text = rv.get_data(as_text=True)
     assert "sk-secret-12345" not in text
@@ -113,10 +116,29 @@ def test_ai_status_does_not_leak_key(client, monkeypatch):
 
 def test_ai_status_empty_key_is_unconfigured(client, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    monkeypatch.delenv("AI_API_KEY", raising=False)
     rv = client.get("/api/studio/ai-status")
     body = rv.get_json()
     assert body["configured"] is False
     assert body["mode"] == "mock"
+
+
+def test_ai_status_accepts_generic_ai_api_key(client, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("AI_API_KEY", "generic-fake-key")
+    rv = client.get("/api/studio/ai-status")
+    assert rv.status_code == 200
+    body = rv.get_json()
+    assert body["configured"] is True
+    assert body["mode"] == "llm"
+
+
+def test_ai_status_does_not_leak_generic_ai_api_key(client, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("AI_API_KEY", "generic-secret-12345")
+    rv = client.get("/api/studio/ai-status")
+    text = rv.get_data(as_text=True)
+    assert "generic-secret-12345" not in text
 
 
 # ─── Studio HTML/JS hooks ─────────────────────────────────────────────────────

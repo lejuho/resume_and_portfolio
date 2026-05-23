@@ -73,6 +73,7 @@ def client(repo):
 
 def test_refine_mock_source_when_no_key(client, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
     rv = client.post("/api/studio/refine", json={"raw_text": "Some project", "intent": "both"})
     assert rv.status_code == 200
     assert rv.get_json()["draft"]["refine_source"] == "mock"
@@ -83,6 +84,18 @@ def test_refine_mock_source_when_no_key(client, monkeypatch):
 
 def test_refine_llm_source(client, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    fake = _fake_client({"resume_bullet": "• Rebuilt auth: achieved 40% result"})
+    monkeypatch.setattr(llm_mod, "_build_client", lambda: fake)
+    rv = client.post("/api/studio/refine", json={"raw_text": "Some project", "intent": "resume"})
+    assert rv.status_code == 200
+    body = rv.get_json()
+    assert body["draft"]["refine_source"] == "llm"
+
+
+def test_refine_llm_source_with_generic_ai_api_key(client, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("AI_API_KEY", "generic-fake-key")
     fake = _fake_client({"resume_bullet": "• Rebuilt auth: achieved 40% result"})
     monkeypatch.setattr(llm_mod, "_build_client", lambda: fake)
     rv = client.post("/api/studio/refine", json={"raw_text": "Some project", "intent": "resume"})
