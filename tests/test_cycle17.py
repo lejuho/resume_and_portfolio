@@ -9,7 +9,13 @@ import pytest
 
 import scripts.dashboard as dash_mod
 from scripts.dashboard import app
-from scripts.llm import MODEL, LLMError, _build_client, resolve_provider_config
+from scripts.llm import (
+    MODEL,
+    LLMError,
+    _build_client,
+    is_api_key_configured,
+    resolve_provider_config,
+)
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -79,6 +85,14 @@ def test_anthropic_key_takes_priority_over_alias(monkeypatch):
     assert cfg["api_key"] == "specific-key"
 
 
+def test_placeholder_key_is_not_configured():
+    assert is_api_key_configured("your_key_here") is False
+
+
+def test_realish_key_is_configured():
+    assert is_api_key_configured("sk-fake") is True
+
+
 def test_provider_normalized_to_lowercase(monkeypatch):
     monkeypatch.setenv("AI_PROVIDER", "  Anthropic  ")
     cfg = resolve_provider_config()
@@ -142,6 +156,15 @@ def test_ai_status_does_not_leak_key(client, monkeypatch):
     assert "sk-ultra-secret-99" not in rv.get_data(as_text=True)
 
 
+def test_ai_status_placeholder_key_returns_mock(client, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "your_key_here")
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    rv = client.get("/api/studio/ai-status")
+    body = rv.get_json()
+    assert body["configured"] is False
+    assert body["mode"] == "mock"
+
+
 # ─── cache key includes provider/model ───────────────────────────────────────
 
 
@@ -166,6 +189,16 @@ def test_cache_key_changes_with_model_override(monkeypatch):
 def test_refine_unsupported_provider_falls_back_to_mock(client, monkeypatch):
     monkeypatch.setenv("AI_PROVIDER", "openai")
     monkeypatch.setenv("AI_API_KEY", "some-key")
+    rv = client.post(
+        "/api/studio/refine", json={"raw_text": "Some project notes", "intent": "both"}
+    )
+    assert rv.status_code == 200
+    assert rv.get_json()["draft"]["refine_source"] == "mock"
+
+
+def test_refine_placeholder_key_falls_back_to_mock(client, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "your_key_here")
+    monkeypatch.delenv("AI_API_KEY", raising=False)
     rv = client.post(
         "/api/studio/refine", json={"raw_text": "Some project notes", "intent": "both"}
     )

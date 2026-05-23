@@ -475,10 +475,12 @@ def studio() -> str:
 @app.route("/api/studio/ai-status")
 def api_studio_ai_status():
     try:
-        from scripts.llm import _SUPPORTED_PROVIDERS, resolve_provider_config
+        from scripts.llm import _SUPPORTED_PROVIDERS, is_api_key_configured, resolve_provider_config
 
         cfg = resolve_provider_config()
-        configured = bool(cfg["api_key"]) and cfg["provider"] in _SUPPORTED_PROVIDERS
+        configured = (
+            is_api_key_configured(cfg["api_key"]) and cfg["provider"] in _SUPPORTED_PROVIDERS
+        )
         mode = "llm" if configured else "mock"
         return jsonify(
             {
@@ -507,7 +509,17 @@ def api_studio_refine():
     if intent not in ("resume", "portfolio", "both"):
         return jsonify({"ok": False, "error": "intent must be resume, portfolio, or both"}), 400
 
-    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("AI_API_KEY"):
+    try:
+        from scripts.llm import _SUPPORTED_PROVIDERS, is_api_key_configured, resolve_provider_config
+
+        cfg = resolve_provider_config()
+        can_try_llm = (
+            is_api_key_configured(cfg["api_key"]) and cfg["provider"] in _SUPPORTED_PROVIDERS
+        )
+    except Exception:
+        can_try_llm = False
+
+    if can_try_llm:
         try:
             from scripts.llm import studio_refine_llm
 

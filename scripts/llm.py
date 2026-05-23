@@ -49,6 +49,28 @@ def _cache_write(key: str, data: dict, cache_dir: Path) -> None:
 # ─── provider config ───────────────────────────────────────────────────────
 
 _SUPPORTED_PROVIDERS = frozenset({"anthropic"})
+_PLACEHOLDER_API_KEYS = frozenset(
+    {
+        "your_key_here",
+        "your-key-here",
+        "paste_key_here",
+        "paste-your-key-here",
+        "changeme",
+        "change_me",
+        "replace_me",
+        "replace-with-your-key",
+    }
+)
+
+
+def is_api_key_configured(api_key: str | None) -> bool:
+    """Return True when an API key looks intentionally configured.
+
+    This is not a live credential check. It only prevents obvious placeholders
+    from being treated as configured.
+    """
+    key = (api_key or "").strip()
+    return bool(key) and key.lower() not in _PLACEHOLDER_API_KEYS
 
 
 def resolve_provider_config() -> dict:
@@ -73,7 +95,7 @@ def _build_client(config: dict | None = None):
     api_key = cfg["api_key"]
     if provider not in _SUPPORTED_PROVIDERS:
         raise LLMError(f"unsupported provider: {provider!r}")
-    if not api_key:
+    if not is_api_key_configured(api_key):
         raise LLMError("ANTHROPIC_API_KEY or AI_API_KEY is not set")
     try:
         from anthropic import Anthropic  # type: ignore[import]

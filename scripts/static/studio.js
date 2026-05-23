@@ -24,7 +24,7 @@ async function _fetchAiStatus() {
     const resp = await fetch("/api/studio/ai-status");
     const data = await resp.json();
     if (data.configured) {
-      el.textContent = "AI: connected";
+      el.textContent = "AI: configured";
     } else {
       el.textContent = "AI: mock fallback";
     }
