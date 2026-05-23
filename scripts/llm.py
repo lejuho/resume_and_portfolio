@@ -13,7 +13,7 @@ from typing import Optional
 from .card import Card
 
 MODEL = "claude-sonnet-4-6"
-_SCHEMA_VER = 1
+_SCHEMA_VER = 2
 
 
 class LLMError(Exception):
@@ -190,22 +190,34 @@ _VALID_TYPES = frozenset(
 _VALID_EVIDENCE_TYPES = frozenset({"repo", "deck", "writeup", "demo", "article", "other"})
 
 _STUDIO_REFINE_PROMPT = """\
-You are a career coach extracting structured information from raw career notes.
+You are a senior career consultant and portfolio narrative designer.
+Your job is to turn rough career notes into compelling, specific career artifacts.
+Do NOT summarize or restate the raw input — infer career value, sharpen framing,
+and produce output that a hiring manager or portfolio reader would find credible.
 Return ONLY a JSON object — no markdown fences, no explanation.
 
-Required fields (always present):
-  title: string (concise project/role name, ≤80 chars)
+Always-present fields:
+  title: string — concise project/role name (≤80 chars)
   type: one of project/talk/paper/hackathon/role/award/writing/course/community
-  summary: 1-2 sentence string (≤300 chars)
+  summary: string — 1-2 sharp sentences for a portfolio card (≤200 chars)
+  problem: string — what situation or gap prompted this work (1-2 sentences)
+  framing: string — how you scoped or reframed the problem (1-2 sentences)
+  approach: string — key technical or strategic decisions made (2-3 sentences)
+  outcome: string — measurable or observable results (1-2 sentences)
+  insight: string — what you learned or would do differently (1 sentence)
+  decisions_tradeoffs: string — a notable tradeoff or constraint navigated (1-2 sentences)
   tags: object with domain (list[str]), skill (list[str]), audience (list[str])
-  metrics: list of short strings (numbers/percentages found, e.g. "40%", "2x")
-  evidence: list of objects with type ("repo"|"demo"|"other") and url (string)
-  missing_info: list of objects with code and message for any missing context
+  metrics: list of short strings — concrete numbers/percentages (e.g. "40%", "2x")
+  evidence: list of objects with type ("repo"|"deck"|"writeup"|"demo"|"article"|"other")
+    and url (string)
+  missing_info: list of objects with code (string) and message (string) for gaps
 
-Intent-conditional fields (include only when indicated by intent):
-  resume_bullet: string starting with "•" (if intent includes resume)
-  portfolio_body: markdown string with sections ## Problem, ## Framing, ## Approach,
-    ## Outcome, ## Insight (if intent includes portfolio)
+Intent-conditional fields:
+  resume_bullet: string starting with "•" and an action verb — one line,
+    quantified result if possible (if intent includes resume)
+  portfolio_body: markdown string — narrative prose using ## Problem, ## Framing,
+    ## Approach, ## Outcome, ## Insight, ## Decisions & Tradeoffs sections.
+    Write in first person. Do not copy the raw notes verbatim. (if intent includes portfolio)
 
 Intent: {intent}
 Raw notes:
@@ -281,6 +293,17 @@ def studio_refine_llm(
         if isinstance(m, dict)
     ]
 
+    def _narrative(key: str, fallback: str = "") -> str:
+        val = raw_parsed.get(key)
+        return str(val).strip() if val and isinstance(val, str) else fallback
+
+    problem = _narrative("problem")
+    framing = _narrative("framing")
+    approach = _narrative("approach")
+    outcome = _narrative("outcome")
+    insight = _narrative("insight")
+    decisions_tradeoffs = _narrative("decisions_tradeoffs")
+
     from datetime import date as _date
 
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "studio-draft"
@@ -297,6 +320,12 @@ def studio_refine_llm(
         "status": "draft",
         "visibility": "public",
         "summary": summary,
+        "problem": problem,
+        "framing": framing,
+        "approach": approach,
+        "outcome": outcome,
+        "insight": insight,
+        "decisions_tradeoffs": decisions_tradeoffs,
         "tags": tags,
         "metrics": metrics,
         "evidence": evidence,
