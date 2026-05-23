@@ -53,6 +53,9 @@
                        border-radius: 4px; font-size: .8rem; white-space: pre-wrap; min-height: 32px;
                        display: none; }
     #st-ai-status { margin-left: auto; font-size: .75rem; color: #aac; }
+    #st-ai-check-btn { background: transparent; border: 1px solid #aac; color: #aac;
+                       padding: 3px 10px; font-size: .72rem; border-radius: 3px; }
+    #st-ai-check-btn:hover { background: rgba(170,170,204,.15); }
     #st-refine-source { margin-top: 8px; font-size: .75rem; color: #888; }
   </style>
 </head>
@@ -61,6 +64,7 @@
     <strong>Career Studio</strong>
     <a href="/dashboard">← Dashboard</a>
     <span id="st-ai-status" aria-live="polite"></span>
+    <button id="st-ai-check-btn" onclick="checkAiConnection()">Check AI connection</button>
   </header>
   <main>
     <section id="st-capture">

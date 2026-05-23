@@ -83,8 +83,11 @@ def test_gitignore_includes_dotenv():
 
 
 def test_ai_status_unconfigured(client, monkeypatch):
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("AI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     rv = client.get("/api/studio/ai-status")
     assert rv.status_code == 200
     body = rv.get_json()
@@ -115,8 +118,11 @@ def test_ai_status_does_not_leak_key(client, monkeypatch):
 
 
 def test_ai_status_empty_key_is_unconfigured(client, monkeypatch):
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
     monkeypatch.delenv("AI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     rv = client.get("/api/studio/ai-status")
     body = rv.get_json()
     assert body["configured"] is False

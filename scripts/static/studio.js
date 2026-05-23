@@ -60,6 +60,29 @@ function _chip(type, label) {
   return span;
 }
 
+// ── AI connection check ───────────────────────────────────────────────────────
+
+async function checkAiConnection() {
+  const statusEl = document.getElementById("st-ai-status");
+  const btn = document.getElementById("st-ai-check-btn");
+  btn.disabled = true;
+  btn.textContent = "Checking…";
+  try {
+    const resp = await fetch("/api/studio/ai-check", { method: "POST" });
+    const data = await resp.json();
+    if (data.connected) {
+      if (statusEl) statusEl.textContent = "AI: verified";
+    } else {
+      if (statusEl) statusEl.textContent = "AI: configured, check failed";
+    }
+  } catch (_) {
+    if (statusEl) statusEl.textContent = "AI: check unavailable";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Check AI connection";
+  }
+}
+
 // ── Refine ───────────────────────────────────────────────────────────────────
 
 async function refine() {

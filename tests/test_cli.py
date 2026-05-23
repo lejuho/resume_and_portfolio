@@ -557,7 +557,11 @@ def test_llm_tailor_missing_api_key(card_repo, monkeypatch, tmp_path):
     import scripts.pcli as pcli_mod
 
     monkeypatch.setattr(pcli_mod, "REPO_ROOT", card_repo)
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
     jd_file = tmp_path / "jd.txt"
     jd_file.write_text("Engineer.", encoding="utf-8")

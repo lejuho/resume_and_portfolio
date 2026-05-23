@@ -149,6 +149,71 @@ def _call(client, prompt: str, model: str = MODEL) -> str:
     return response.content[0].text
 
 
+# ─── connection check ─────────────────────────────────────────────────────
+
+_ERROR_CODES = frozenset(
+    {
+        "not_configured",
+        "unsupported_provider",
+        "auth_failed",
+        "quota_or_rate_limit",
+        "network_error",
+        "provider_error",
+    }
+)
+
+
+class LLMConnectionError(LLMError):
+    """LLMError subclass that carries a structured error_code."""
+
+    def __init__(self, message: str, error_code: str) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+
+
+def _classify_exc(exc: BaseException) -> LLMConnectionError:
+    msg = str(exc).lower()
+    if any(w in msg for w in ("auth", "key", "401", "403", "permission", "credential")):
+        return LLMConnectionError(
+            "Authentication failed. Check the configured API key.", "auth_failed"
+        )
+    if any(w in msg for w in ("quota", "rate", "429", "limit")):
+        return LLMConnectionError("Quota or rate limit reached.", "quota_or_rate_limit")
+    if any(w in msg for w in ("network", "connect", "timeout", "dns", "unreachable")):
+        return LLMConnectionError("Network error reaching provider.", "network_error")
+    return LLMConnectionError("Provider returned an error.", "provider_error")
+
+
+def check_provider_connection(config: dict | None = None) -> dict:
+    """Make a minimal live provider call to verify the API key and model work.
+
+    Returns {"ok": True, "connected": True, "provider": ..., "model": ...} on success.
+    Raises LLMConnectionError with a safe message and structured error_code on failure.
+    Never includes API key values in the returned dict or raised message.
+    """
+    cfg = config or resolve_provider_config()
+    provider = cfg["provider"]
+    model = cfg["model"]
+    api_key = cfg["api_key"]
+
+    if not is_api_key_configured(api_key):
+        raise LLMConnectionError("No API key configured for this provider.", "not_configured")
+    if provider not in _SUPPORTED_PROVIDERS:
+        raise LLMConnectionError(f"Provider {provider!r} is not supported.", "unsupported_provider")
+
+    try:
+        client = _build_client(cfg)
+    except LLMError as exc:
+        raise LLMConnectionError(str(exc), "provider_error") from exc
+
+    try:
+        _call(client, "hi", model)
+    except Exception as exc:
+        raise _classify_exc(exc) from exc
+
+    return {"ok": True, "connected": True, "provider": provider, "model": model}
+
+
 # ─── public API ────────────────────────────────────────────────────────────
 
 

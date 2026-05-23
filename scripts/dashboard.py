@@ -498,6 +498,48 @@ def api_studio_ai_status():
     )
 
 
+@app.route("/api/studio/ai-check", methods=["POST"])
+def api_studio_ai_check():
+    try:
+        from scripts.llm import LLMConnectionError, check_provider_connection
+
+        result = check_provider_connection()
+        return jsonify(
+            {
+                "ok": True,
+                "connected": True,
+                "provider": result["provider"],
+                "model": result["model"],
+                "message": "Connection check passed",
+            }
+        )
+    except LLMConnectionError as exc:
+        from scripts.llm import resolve_provider_config
+
+        cfg = resolve_provider_config()
+        return jsonify(
+            {
+                "ok": False,
+                "connected": False,
+                "provider": cfg["provider"],
+                "model": cfg["model"],
+                "error_code": exc.error_code,
+                "message": str(exc),
+            }
+        )
+    except Exception:
+        return jsonify(
+            {
+                "ok": False,
+                "connected": False,
+                "provider": "unknown",
+                "model": None,
+                "error_code": "provider_error",
+                "message": "Connection check failed.",
+            }
+        )
+
+
 @app.route("/api/studio/refine", methods=["POST"])
 def api_studio_refine():
     data = request.get_json(force=True) or {}

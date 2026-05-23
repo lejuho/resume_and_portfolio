@@ -261,8 +261,11 @@ def test_suggest_cached_on_second_call(tmp_path):
 
 
 def test_build_client_raises_without_api_key(monkeypatch):
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("AI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     from scripts.llm import _build_client
 
     with pytest.raises(LLMError, match="AI_API_KEY"):
