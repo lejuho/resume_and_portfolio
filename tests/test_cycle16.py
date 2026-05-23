@@ -105,7 +105,7 @@ def test_prompt_includes_intent_and_raw_text_placeholders():
 
 def test_consultant_fields_appear_in_draft(monkeypatch):
     fake = _fake_client()
-    monkeypatch.setattr(llm_mod, "_build_client", lambda: fake)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: fake)
     monkeypatch.setattr(llm_mod, "_cache_read", lambda *a, **k: None)
     monkeypatch.setattr(llm_mod, "_cache_write", lambda *a, **k: None)
     result = studio_refine_llm("Auth rebuild 2024-03", "both", client=fake)
@@ -180,7 +180,7 @@ def test_api_refine_returns_consultant_fields(client, monkeypatch):
             ),
         }
     )
-    monkeypatch.setattr(llm_mod, "_build_client", lambda: fake)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: fake)
     monkeypatch.setattr(llm_mod, "_cache_read", lambda *a, **k: None)
     monkeypatch.setattr(llm_mod, "_cache_write", lambda *a, **k: None)
     rv = client.post(
@@ -219,7 +219,7 @@ def test_consultant_draft_saves_and_validates(client, repo, monkeypatch):
             ),
         }
     )
-    monkeypatch.setattr(llm_mod, "_build_client", lambda: fake)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: fake)
     monkeypatch.setattr(llm_mod, "_cache_read", lambda *a, **k: None)
     monkeypatch.setattr(llm_mod, "_cache_write", lambda *a, **k: None)
     rv_refine = client.post(

@@ -486,7 +486,7 @@ def test_llm_tailor_with_fake_client(card_repo, monkeypatch, tmp_path):
 
     import scripts.llm as llm_mod
 
-    monkeypatch.setattr(llm_mod, "_build_client", lambda: _FakeClient())
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: _FakeClient())
     monkeypatch.setattr(pcli_mod, "REPO_ROOT", card_repo)
 
     jd_file = tmp_path / "jd.txt"
@@ -543,7 +543,7 @@ def test_llm_suggest_with_fake_client(card_repo, monkeypatch, tmp_path):
 
     import scripts.llm as llm_mod
 
-    monkeypatch.setattr(llm_mod, "_build_client", lambda: _FakeClient())
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: _FakeClient())
 
     notes_file = tmp_path / "notes.txt"
     notes_file.write_text("Built a cross-chain bridge between ETH and Solana.", encoding="utf-8")
@@ -603,7 +603,7 @@ def test_build_resume_llm_meta_persisted_in_resume_data_json(card_repo, monkeypa
             def create(**kwargs):
                 return _FM(next(responses))
 
-    monkeypatch.setattr(llm_mod, "_build_client", lambda: _FakeClient())
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: _FakeClient())
 
     # Fake typst so build_resume doesn't fail on missing binary
     import shutil

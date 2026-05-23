@@ -86,7 +86,7 @@ def test_refine_llm_source(client, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
     monkeypatch.delenv("AI_API_KEY", raising=False)
     fake = _fake_client({"resume_bullet": "• Rebuilt auth: achieved 40% result"})
-    monkeypatch.setattr(llm_mod, "_build_client", lambda: fake)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: fake)
     rv = client.post("/api/studio/refine", json={"raw_text": "Some project", "intent": "resume"})
     assert rv.status_code == 200
     body = rv.get_json()
@@ -97,7 +97,7 @@ def test_refine_llm_source_with_generic_ai_api_key(client, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setenv("AI_API_KEY", "generic-fake-key")
     fake = _fake_client({"resume_bullet": "• Rebuilt auth: achieved 40% result"})
-    monkeypatch.setattr(llm_mod, "_build_client", lambda: fake)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: fake)
     rv = client.post("/api/studio/refine", json={"raw_text": "Some project", "intent": "resume"})
     assert rv.status_code == 200
     body = rv.get_json()
@@ -107,7 +107,7 @@ def test_refine_llm_source_with_generic_ai_api_key(client, monkeypatch):
 def test_refine_llm_resume_intent(client, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
     fake = _fake_client({"resume_bullet": "• Rebuilt auth: achieved 40% result"})
-    monkeypatch.setattr(llm_mod, "_build_client", lambda: fake)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: fake)
     rv = client.post(
         "/api/studio/refine", json={"raw_text": "Auth rebuild 2024-03", "intent": "resume"}
     )
@@ -124,7 +124,7 @@ def test_refine_llm_portfolio_intent(client, monkeypatch):
         "## Approach\n\nRefactor.\n\n## Outcome\n\n40%.\n\n## Insight\n\nLearning."
     )
     fake = _fake_client({"portfolio_body": body_md})
-    monkeypatch.setattr(llm_mod, "_build_client", lambda: fake)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: fake)
     rv = client.post(
         "/api/studio/refine", json={"raw_text": "Auth rebuild 2024-03", "intent": "portfolio"}
     )
@@ -147,7 +147,7 @@ def test_refine_llm_both_intent(client, monkeypatch):
             "portfolio_body": body_md,
         }
     )
-    monkeypatch.setattr(llm_mod, "_build_client", lambda: fake)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: fake)
     rv = client.post(
         "/api/studio/refine", json={"raw_text": "Auth rebuild 2024-03", "intent": "both"}
     )
@@ -166,7 +166,7 @@ def test_refine_llm_malformed_falls_back_to_mock(client, monkeypatch):
     msg.content = [MagicMock(text="not valid json {{{{")]
     bad_client = MagicMock()
     bad_client.messages.create.return_value = msg
-    monkeypatch.setattr(llm_mod, "_build_client", lambda: bad_client)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: bad_client)
     rv = client.post("/api/studio/refine", json={"raw_text": "Some project", "intent": "both"})
     assert rv.status_code == 200
     body = rv.get_json()
@@ -190,7 +190,7 @@ def test_refine_llm_draft_saves_and_validates(client, repo, monkeypatch):
             ),
         }
     )
-    monkeypatch.setattr(llm_mod, "_build_client", lambda: fake)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: fake)
     monkeypatch.setattr(llm_mod, "_cache_read", lambda *a, **k: None)
     monkeypatch.setattr(llm_mod, "_cache_write", lambda *a, **k: None)
 
@@ -213,7 +213,7 @@ def test_refine_llm_overlong_summary_is_capped(client, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
     long_summary = "x" * 250
     fake = _fake_client({"summary": long_summary})
-    monkeypatch.setattr(llm_mod, "_build_client", lambda: fake)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: fake)
     monkeypatch.setattr(llm_mod, "_cache_read", lambda *a, **k: None)
     monkeypatch.setattr(llm_mod, "_cache_write", lambda *a, **k: None)
     rv = client.post(
@@ -239,7 +239,7 @@ def test_refine_llm_overlong_summary_draft_saves(client, repo, monkeypatch):
             ),
         }
     )
-    monkeypatch.setattr(llm_mod, "_build_client", lambda: fake)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: fake)
     monkeypatch.setattr(llm_mod, "_cache_read", lambda *a, **k: None)
     monkeypatch.setattr(llm_mod, "_cache_write", lambda *a, **k: None)
     rv_refine = client.post(
@@ -262,7 +262,7 @@ def test_refine_llm_invalid_evidence_type_normalizes_to_other(client, monkeypatc
             ]
         }
     )
-    monkeypatch.setattr(llm_mod, "_build_client", lambda: fake)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: fake)
     monkeypatch.setattr(llm_mod, "_cache_read", lambda *a, **k: None)
     monkeypatch.setattr(llm_mod, "_cache_write", lambda *a, **k: None)
     rv = client.post("/api/studio/refine", json={"raw_text": "Evidence test", "intent": "both"})
@@ -288,7 +288,7 @@ def test_refine_llm_invalid_evidence_type_draft_saves(client, repo, monkeypatch)
             ),
         }
     )
-    monkeypatch.setattr(llm_mod, "_build_client", lambda: fake)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: fake)
     monkeypatch.setattr(llm_mod, "_cache_read", lambda *a, **k: None)
     monkeypatch.setattr(llm_mod, "_cache_write", lambda *a, **k: None)
     rv_refine = client.post(

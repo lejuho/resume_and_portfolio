@@ -474,23 +474,23 @@ def studio() -> str:
 
 @app.route("/api/studio/ai-status")
 def api_studio_ai_status():
-    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("AI_API_KEY") or ""
-    configured = bool(api_key)
-    if configured:
-        try:
-            from scripts.llm import MODEL
+    try:
+        from scripts.llm import _SUPPORTED_PROVIDERS, resolve_provider_config
 
-            return jsonify(
-                {
-                    "ok": True,
-                    "configured": True,
-                    "provider": "anthropic",
-                    "mode": "llm",
-                    "model": MODEL,
-                }
-            )
-        except Exception:
-            pass  # llm.py import failure → fall through to mock
+        cfg = resolve_provider_config()
+        configured = bool(cfg["api_key"]) and cfg["provider"] in _SUPPORTED_PROVIDERS
+        mode = "llm" if configured else "mock"
+        return jsonify(
+            {
+                "ok": True,
+                "configured": configured,
+                "provider": cfg["provider"],
+                "mode": mode,
+                "model": cfg["model"] if configured else None,
+            }
+        )
+    except Exception:
+        pass  # llm.py import failure → safe fallback
     return jsonify(
         {"ok": True, "configured": False, "provider": "anthropic", "mode": "mock", "model": None}
     )

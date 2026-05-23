@@ -46,15 +46,33 @@ def _cache_write(key: str, data: dict, cache_dir: Path) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+# ─── provider config ───────────────────────────────────────────────────────
+
+_SUPPORTED_PROVIDERS = frozenset({"anthropic"})
+
+
+def resolve_provider_config() -> dict:
+    """Resolve provider, model, and API key from environment variables.
+
+    Returns dict with keys: provider (str), model (str), api_key (str).
+    Never returns the api_key value in any log or serialized form.
+    """
+    provider = (os.environ.get("AI_PROVIDER") or "anthropic").strip().lower()
+    raw_model = (os.environ.get("AI_MODEL") or "").strip()
+    model = raw_model if raw_model else MODEL
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("AI_API_KEY") or ""
+    return {"provider": provider, "model": model, "api_key": api_key}
+
+
 # ─── client ────────────────────────────────────────────────────────────────
 
 
-def _configured_api_key() -> str:
-    return os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("AI_API_KEY") or ""
-
-
-def _build_client():
-    api_key = _configured_api_key()
+def _build_client(config: dict | None = None):
+    cfg = config or resolve_provider_config()
+    provider = cfg["provider"]
+    api_key = cfg["api_key"]
+    if provider not in _SUPPORTED_PROVIDERS:
+        raise LLMError(f"unsupported provider: {provider!r}")
     if not api_key:
         raise LLMError("ANTHROPIC_API_KEY or AI_API_KEY is not set")
     try:
@@ -65,9 +83,9 @@ def _build_client():
         raise LLMError("anthropic package not installed; run: uv sync --extra llm") from exc
 
 
-def _call(client, prompt: str) -> str:
+def _call(client, prompt: str, model: str = MODEL) -> str:
     response = client.messages.create(
-        model=MODEL,
+        model=model,
         max_tokens=1024,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -92,14 +110,17 @@ def score_cards(
     jd: str,
     lang: str = "en",
     client=None,
+    model: Optional[str] = None,
     cache_dir: Optional[Path] = None,
     no_cache: bool = False,
 ) -> list[tuple[Card, float, str]]:
     """Score cards 0.0-1.0 for JD relevance. Returns list sorted by score desc.
     Cache key excludes tone so score results are tone-independent.
     """
+    cfg = resolve_provider_config()
+    resolved_model = model or cfg["model"]
     if client is None:
-        client = _build_client()
+        client = _build_client(cfg)
     cache_dir = cache_dir or Path(".cache/llm")
 
     results: list[tuple[Card, float, str]] = []
@@ -107,7 +128,8 @@ def score_cards(
         payload = {
             "schema_ver": _SCHEMA_VER,
             "task": "score",
-            "model": MODEL,
+            "provider": cfg["provider"],
+            "model": resolved_model,
             "lang": lang,
             "card_id": card.id,
             "card_summary": card.summary,
@@ -127,7 +149,7 @@ def score_cards(
                 f"Card summary: {card.summary}\n\n"
                 f"Job description:\n{jd}"
             )
-            raw = _call(client, prompt)
+            raw = _call(client, prompt, resolved_model)
             try:
                 parsed = json.loads(raw.strip())
                 score = float(parsed["score"])
@@ -149,19 +171,23 @@ def rewrite_summary(
     tone: str,
     lang: str = "en",
     client=None,
+    model: Optional[str] = None,
     cache_dir: Optional[Path] = None,
     no_cache: bool = False,
 ) -> str:
     """Rewrite card summary for tone/JD alignment. Returns new string; source unchanged."""
+    cfg = resolve_provider_config()
+    resolved_model = model or cfg["model"]
     if client is None:
-        client = _build_client()
+        client = _build_client(cfg)
     cache_dir = cache_dir or Path(".cache/llm")
 
     original = card.summary_ko if lang == "ko" and card.summary_ko else card.summary
     payload = {
         "schema_ver": _SCHEMA_VER,
         "task": "rewrite",
-        "model": MODEL,
+        "provider": cfg["provider"],
+        "model": resolved_model,
         "tone": tone,
         "lang": lang,
         "card_id": card.id,
@@ -179,7 +205,7 @@ def rewrite_summary(
         f"Return ONLY the rewritten summary text, nothing else.\n\n"
         f"Original: {original}{jd_section}"
     )
-    rewritten = _call(client, prompt).strip()
+    rewritten = _call(client, prompt, resolved_model).strip()
     _cache_write(key, {"rewritten": rewritten}, cache_dir)
     return rewritten
 
@@ -229,6 +255,7 @@ def studio_refine_llm(
     raw_text: str,
     intent: str,
     client=None,
+    model: Optional[str] = None,
     cache_dir: Optional[Path] = None,
     no_cache: bool = False,
 ) -> dict:
@@ -238,14 +265,17 @@ def studio_refine_llm(
     draft includes refine_source="llm".
     Raises LLMError on malformed response.
     """
+    cfg = resolve_provider_config()
+    resolved_model = model or cfg["model"]
     if client is None:
-        client = _build_client()
+        client = _build_client(cfg)
     cache_dir = cache_dir or Path(".cache/llm")
 
     payload = {
         "schema_ver": _SCHEMA_VER,
         "task": "studio_refine",
-        "model": MODEL,
+        "provider": cfg["provider"],
+        "model": resolved_model,
         "intent": intent,
         "raw_text": raw_text,
     }
@@ -256,7 +286,7 @@ def studio_refine_llm(
         raw_parsed = cached
     else:
         prompt = _STUDIO_REFINE_PROMPT.format(intent=intent, raw_text=raw_text)
-        raw = _call(client, prompt)
+        raw = _call(client, prompt, resolved_model)
         try:
             raw_parsed = json.loads(raw.strip())
         except Exception as exc:
@@ -350,18 +380,22 @@ def studio_refine_llm(
 def suggest_card_from_text(
     text: str,
     client=None,
+    model: Optional[str] = None,
     cache_dir: Optional[Path] = None,
     no_cache: bool = False,
 ) -> dict:
     """Suggest card frontmatter fields from raw text. Returns dict with required fields."""
+    cfg = resolve_provider_config()
+    resolved_model = model or cfg["model"]
     if client is None:
-        client = _build_client()
+        client = _build_client(cfg)
     cache_dir = cache_dir or Path(".cache/llm")
 
     payload = {
         "schema_ver": _SCHEMA_VER,
         "task": "suggest",
-        "model": MODEL,
+        "provider": cfg["provider"],
+        "model": resolved_model,
         "text": text,
     }
     key = _cache_key(payload)
@@ -380,7 +414,7 @@ def suggest_card_from_text(
         "No markdown fences, no explanation.\n\n"
         f"Text:\n{text}"
     )
-    raw = _call(client, prompt)
+    raw = _call(client, prompt, resolved_model)
     try:
         data = json.loads(raw.strip())
     except Exception as exc:
