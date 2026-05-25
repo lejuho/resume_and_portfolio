@@ -407,9 +407,9 @@ def _mock_refine(raw_text: str, intent: str) -> dict:
 
     if dates:
         year, month = dates[0]
-        period_start = f"{year}-{month}-01"
+        period_start: str | None = f"{year}-{month}-01"
     else:
-        period_start = str(_date.today())
+        period_start = None
 
     # Source facts: items directly present in raw text
     source_facts: list[str] = []

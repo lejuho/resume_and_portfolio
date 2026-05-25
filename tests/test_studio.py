@@ -205,7 +205,7 @@ def test_studio_save_does_not_persist_raw_body(client, repo, monkeypatch):
     monkeypatch.delenv("AI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    raw = "My Awesome Project\nSECRET_BODY_PHRASE private rough notes that must never be stored"
+    raw = "My Awesome Project 2024-01\nSECRET_BODY_PHRASE private rough notes must never be stored"
     rv_refine = client.post("/api/studio/refine", json={"raw_text": raw, "intent": "both"})
     assert rv_refine.status_code == 200
     draft = rv_refine.get_json()["draft"]

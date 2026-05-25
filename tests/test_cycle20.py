@@ -824,3 +824,63 @@ def test_mock_uri_pronoun_still_triggers_contribution_unclear(client, monkeypatc
     body = rv.get_json()
     codes = [m["code"] for m in body["missing_info"]]
     assert "CONTRIBUTION_UNCLEAR" in codes
+
+
+# ── ISSUE-9: mock path also returns None for undated input; save rejects it ───
+
+
+def test_mock_undated_draft_has_null_period_start(client, monkeypatch):
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    rv = client.post(
+        "/api/studio/refine",
+        json={"raw_text": "Undated project notes with no factual date.", "intent": "both"},
+    )
+    assert rv.status_code == 200
+    assert rv.get_json()["draft"]["period_start"] is None
+
+
+def test_mock_save_rejects_undated_draft(client, monkeypatch):
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    rv_refine = client.post(
+        "/api/studio/refine",
+        json={"raw_text": "Undated project notes with no factual date.", "intent": "both"},
+    )
+    draft = rv_refine.get_json()["draft"]
+    rv_save = client.post("/api/studio/save", json={"draft": draft})
+    assert rv_save.status_code == 422
+    assert "period_start" in rv_save.get_json()["error"].lower()
+
+
+# ── ISSUE-7 (v3): stderr must not print raw exception text ───────────────────
+
+
+def test_evaluator_stderr_does_not_print_raw_error(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("AI_MODEL", raising=False)
+
+    sentinel = "SECRET_CREDENTIAL_99999"
+
+    def _fake_call_with_meta(*a, **kw):
+        raise Exception(f"Auth failed: {sentinel}")
+
+    monkeypatch.setattr(llm_mod, "_call_with_meta", _fake_call_with_meta)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: MagicMock())
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output" / "evaluations").mkdir(parents=True)
+
+    from scripts.evaluate_studio_grounding import main
+
+    main(["--live", "--provider", "anthropic", "--max-calls", "1"])
+    captured = capsys.readouterr()
+    assert sentinel not in captured.err
+    assert sentinel not in captured.out

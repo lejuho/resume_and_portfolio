@@ -77,3 +77,24 @@ BLOCKED
 
 - No material feature scope expansion found in the remediation changes.
 - `.review/cycle-20/.read-counter` remains untracked and outside this review.
+
+---
+
+## RESOLVED
+
+### Issue Classification
+- ISSUE-9: APPLY
+- ISSUE-7 (v3 continuation): APPLY
+
+### Applied
+
+RESOLVED: ISSUE-9 — mock fallback now returns period_start=None for undated input
+- `scripts/dashboard.py` `_mock_refine()`: changed `period_start = str(_date.today())` to `period_start = None` when no date detected in raw text; consistent with LLM path.
+- `tests/test_cycle20.py`: `test_mock_undated_draft_has_null_period_start`, `test_mock_save_rejects_undated_draft` added.
+- `tests/test_studio.py::test_studio_save_does_not_persist_raw_body`: added `2024-01` to raw text so mock returns a valid period_start.
+자동 check: pytest ✅ (375 passed)
+
+RESOLVED: ISSUE-7 (v3) — stderr no longer prints raw exception message
+- `scripts/evaluate_studio_grounding.py`: `print(f"  [err] {str(exc)[:200]}")` replaced with `print(f"  [err] category={_safe_error_category(exc)}")` — raw exception text never reaches stderr.
+- `tests/test_cycle20.py`: `test_evaluator_stderr_does_not_print_raw_error` added; asserts sentinel string absent from both stdout and stderr.
+자동 check: pytest ✅ (375 passed), ruff ✅
