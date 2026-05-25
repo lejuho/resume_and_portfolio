@@ -333,3 +333,179 @@ provider exception enters JSON or visible browser text.
   cards/context; record it in `docs/acceptance-studio.md`.
 - Factual and blind-hiring quality require scenario review against the separated
   `personal_facts` and `target_context_used` preview, not only schema assertions.
+
+---
+
+## Escalation Amendment v1: Verified Draft Composition
+
+Status: User-approved after `review-v3.md` triggered Same-Issue Stagnation.
+
+This amendment overrides any conflicting application-writing design above. The initial
+approach incorrectly treated LLM-generated prose as copyable after partial post-generation
+checks. Reviews v1-v3 demonstrated that deny-list and regex guards cannot establish that free
+prose contains only approved career facts or respects blind-hiring restrictions.
+
+### Revised Trust Model
+
+```text
+selected live cards
+  -> server-owned fact ledger and blind-hiring redaction
+  -> LLM may select fact IDs, interpret the question, and suggest missing information
+  -> server validates returned IDs
+  -> server composes the copyable answer_draft only from validated facts and target context
+  -> UI shows verified draft separately from non-copyable AI guidance
+```
+
+- Canonical cards remain the only source of personal factual claims.
+- Target context remains a separate user-supplied source for organization, role, question,
+  competency, and job-description framing.
+- LLM output is advisory unless it references server-authoritative IDs and is used through
+  deterministic server composition.
+- The server must not display or make copyable any free-form LLM prose as `answer_draft`.
+- Regex/keyword detection may remain as defense-in-depth or a warning tool, but must not be
+  the trust boundary for answer acceptance.
+
+### Revised Input / Output Specification
+
+The endpoint and request body remain unchanged:
+
+`POST /api/studio/application-preview`
+
+Successful preview retains `answer_draft` for UI compatibility, but its contract changes:
+
+```json
+{
+  "ok": true,
+  "preview": {
+    "output_type": "application_answer",
+    "fact_ledger": [
+      {
+        "id": "F1",
+        "kind": "activity | summary | metric | evidence",
+        "text": "server-owned approved text",
+        "source_card_id": "card-id"
+      }
+    ],
+    "selected_facts": ["F1"],
+    "selected_cards": [
+      {
+        "id": "card-id",
+        "display_title": "safe title or Evidence 1",
+        "selection_reason": "server-derived safe rationale"
+      }
+    ],
+    "target_context_used": ["server-built target context item"],
+    "question_intent": "LLM or mock interpretation",
+    "competency_target": "LLM or mock interpretation",
+    "answer_draft": "server-composed copyable draft",
+    "draft_provenance": "server_composed",
+    "ai_guidance": ["non-copyable suggestion requiring user judgment"],
+    "assumptions": ["item requiring user confirmation"],
+    "missing_info": [],
+    "character_count": 100,
+    "character_limit": 1000,
+    "within_limit": true,
+    "refine_source": "llm | mock",
+    "fallback_reason": null
+  }
+}
+```
+
+Required behavior:
+
+- `fact_ledger` is created by the server from selected live cards, never accepted from LLM.
+- The LLM may return `selected_fact_ids`; unknown IDs are discarded, and an unusable
+  selection falls back to deterministic safe selection.
+- `answer_draft` is composed by server-owned templates from selected ledger entries and
+  submitted target context only. Provider prose cannot populate this field.
+- `ai_guidance` is optional advisory text and must be visually labeled as not part of the
+  verified/copyable answer.
+- Character-limit enforcement applies to the server-composed `answer_draft`.
+- Application previews remain in-memory only and are not saved as cards or documents.
+
+### Blind-Hiring Policy
+
+When `blind_hiring=true`, protection is applied before any LLM request and across every
+visible output surface:
+
+- Filter or anonymize identity/background-bearing card title and summary before constructing
+  the fact ledger or provider prompt.
+- Do not send excluded identity/background text to the provider.
+- Do not render excluded text in `fact_ledger`, `selected_cards`, `selection_reason`,
+  `answer_draft`, or `ai_guidance`.
+- Render safe labels such as `Evidence 1` for selected cards whose original display title was
+  excluded.
+- Emit `BLIND_HIRING_PERSONAL_IDENTIFIERS` when content is excluded.
+- If provider guidance contains excluded terms despite redacted input, discard that guidance
+  and expose a safe confirmation warning; the verified draft remains server-composed.
+
+### Revised Key Changes
+
+- Backend fact ledger: factor a single server helper that loads selected card facts, creates
+  stable fact IDs, and applies blind-hiring redaction before both mock and LLM paths.
+- Backend LLM contract: replace LLM `answer_draft` generation with structured advisory output:
+  selected fact IDs, question/competency interpretation, missing information, and optional
+  guidance. Reject or ignore unknown fact IDs.
+- Backend draft composition: replace `_has_ungrounded_claims()` as the acceptance mechanism
+  with deterministic composition of `answer_draft` from validated ledger/context units.
+- Frontend: label the copyable response as `Verified draft`; show `AI guidance` separately
+  without routing it through the copy action. Render safe selected-card labels in
+  blind-hiring mode.
+- Documentation: update `requirements-dashboard.md`, `docs/test-cases.md`, and
+  `docs/acceptance-studio.md` to describe server-composed drafts and advisory-only LLM text,
+  superseding any statement that implies free LLM answer prose is accepted after filtering.
+
+### Revised Sprint Contract
+
+Passing criteria:
+
+- A provider or cache response containing arbitrary free prose cannot place that prose into
+  the copyable `answer_draft`.
+- The copyable `answer_draft` is always marked `draft_provenance=server_composed` and can be
+  traced to selected ledger facts plus submitted target context.
+- Unknown or unselected LLM `selected_fact_ids` cannot influence the verified draft.
+- Blind-hiring mode prevents excluded identity/background content from reaching the provider
+  prompt or appearing anywhere in the returned/rendered preview.
+- `ai_guidance`, when present, is separated from the copy action and cannot be mistaken for
+  verified submission text.
+- Existing fallback visibility, no-persistence behavior, dashboard, resume build, and
+  portfolio build remain green.
+
+Required tests:
+
+- Adversarial provider result containing qualitative invention such as
+  `I founded Fabricated Corp and led its global expansion.` does not appear in
+  `answer_draft`; the verified draft is server-composed.
+- Provider result returning unknown or unselected fact IDs is ignored or safely falls back.
+- Identical approved ledger facts yield stable server-composed draft content in mock and LLM
+  paths, apart from visible advisory/interpretation metadata.
+- Blind-hiring fixture with education/background identifiers verifies they are absent from
+  provider prompt, facts, selected-card display/rationale, answer draft, and guidance.
+- UI test verifies copy action targets only verified draft and guidance is shown in a
+  separate non-copyable section.
+- Existing Cycle 21 endpoint validation, fallback, no-write, and application UI tests remain
+  green, updated where the superseded response semantics require it.
+
+### Revised Review Guidance
+
+Cycle Reviewer must verify the trust boundary by searching for every code path that can assign
+or render copyable answer text:
+
+```bash
+rg -n "answer_draft|draft_provenance|ai_guidance|selected_fact|fact_ledger|clipboard|copy" scripts tests
+```
+
+Expected result: `answer_draft` is composed from validated server values only. Provider or
+cache payload fields must never be copied directly into the verified-draft field.
+
+Review blind-hiring across all visible and transmitted surfaces:
+
+```bash
+rg -n "blind_hiring|IDENTITY|fact_ledger|selected_cards|selection_reason|answer_draft|ai_guidance|prompt" scripts tests
+```
+
+Expected result: redaction occurs before prompt construction and is reused for every rendered
+field, rather than being patched independently after generation.
+
+Mock shape or schema tests alone are insufficient for these revised safety criteria.
+Adversarial route tests are required.
