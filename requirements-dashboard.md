@@ -1,6 +1,7 @@
 # Post-v1 Dashboard Requirements
 
-Status: draft for Cycle 11+
+Status: implemented baseline through Cycle 19; quality refresh drafted for Cycle 20+
+Last reviewed: 2026-05-25 (`audit/studio-methodology-requirements-refresh`)
 Owner: solo local user
 Related:
 
@@ -8,6 +9,9 @@ Related:
 - `docs/design-system-studio.md` — Career Studio design system
 - `docs/test-cases.md` — product test case specification
 - `.review/midpoint-quality-audit/report-v1.md` — midpoint quality audit
+- `docs/research/career-output-methodology.md` — output-track rubric and evidence matrix
+- `docs/research/consultant-workflow-model.md` — AI/human workflow boundary
+- `docs/research/llm-harness-evaluation.md` — prompt and token evaluation
 
 ## 1. Purpose
 
@@ -180,6 +184,20 @@ The existing dashboard implementation already supports:
   - traversal visual paths rejected
   - invalid edits leave original file unchanged
 
+Career Studio implementation through Cycle 19 also supports:
+
+- separate `/studio` capture and preview surface
+- deterministic mock refinement when no supported configured provider is available
+- optional LLM-backed refinement with `refine_source` shown in the UI
+- consultant-oriented draft fields for portfolio narrative
+- editable preview before saving a new `draft` card
+- post-save handoff to existing build/dashboard workflows
+- provider resolution for `anthropic` and `google`
+- generic `AI_API_KEY` alias plus provider-specific key variables
+- configuration-only `/api/studio/ai-status` response that does not claim live connectivity
+- explicit, user-triggered `/api/studio/ai-check` live connection verification
+- Google Gemini default model `gemini-2.5-flash` when `AI_PROVIDER=google`
+
 This surface is useful, but its current feel is admin-heavy and should not be the primary creative capture UX.
 
 ## 5. Career Studio Requirements
@@ -255,11 +273,14 @@ The user must explicitly approve saving.
 
 Save behavior:
 
-- creates or updates a canonical card
+- creates a new canonical card in the current Studio implementation
 - defaults new cards to `draft`
 - must pass card validation
 - must not silently overwrite an existing card
 - must preserve existing write-safety rules
+
+Updating an existing card from Studio remains out of scope until explicitly designed; exact
+editing remains available in `/dashboard`.
 
 ### 5.7 Output Generation
 
@@ -271,6 +292,17 @@ Initial acceptable behavior:
 - reuse existing CLI/dashboard build machinery
 
 Studio does not need a separate renderer.
+
+### 5.8 Current Studio API Surface
+
+Implemented local API endpoints:
+
+| Endpoint | Purpose | Key behavior |
+|---|---|---|
+| `GET /api/studio/ai-status` | display configuration state | Reports configured/mock mode without making a live request or exposing keys. |
+| `POST /api/studio/ai-check` | optional connection test | Makes a minimal provider request only after user action and returns safe error categories. |
+| `POST /api/studio/refine` | draft generation | Uses supported configured LLM when possible and otherwise returns deterministic mock output. |
+| `POST /api/studio/save` | canonical persistence | Creates a new draft card after explicit action; raw pasted text is not saved by default. |
 
 ## 6. Admin Dashboard Requirements
 
@@ -341,6 +373,16 @@ When an API key is absent, Studio should still be testable with:
 - mock response
 - local deterministic demo response
 
+Supported provider configuration as implemented:
+
+| Provider | `AI_PROVIDER` | Provider-specific key | Default model |
+|---|---|---|---|
+| Anthropic | `anthropic` or unset | `ANTHROPIC_API_KEY` | `claude-sonnet-4-6` |
+| Google Gemini | `google` | `GOOGLE_API_KEY` or `GEMINI_API_KEY` | `gemini-2.5-flash` |
+
+`AI_API_KEY` may act as a fallback alias. Keys must remain server-side and must never be
+included in status, error, cache, or saved card data.
+
 ### 8.2 Non-Mutation
 
 AI output must be preview-only until the user explicitly saves.
@@ -356,6 +398,83 @@ It should surface missing prompts such as:
 - evidence link missing
 - visibility unclear
 - role unclear
+
+### 8.4 Grounded Drafting Quality
+
+Research basis: `docs/research/career-output-methodology.md` and
+`docs/research/consultant-workflow-model.md`.
+
+For future grounded refinement, generated material must distinguish:
+
+- facts directly supported by the raw source;
+- assumptions or interpretations requiring user confirmation;
+- missing information that would improve credibility;
+- resume-specific and portfolio-specific drafts.
+
+Normative safety requirements:
+
+- The AI must not invent a date, metric, technology, evidence link, personal role, or
+  outcome that is absent from the source input.
+- A team result may not be claimed as individual ownership unless supported by input.
+- Uncertainty must be presented for human review rather than silently incorporated into a
+  saved claim.
+- Refined output remains preview-only until explicit save.
+
+### 8.5 Output Quality By Intent
+
+Two initial reader tracks guide quality evaluation:
+
+| Track | Resume emphasis | Portfolio emphasis |
+|---|---|---|
+| K - Korean formal application | concise, formal, verifiable job-relevant statement | optional supporting project detail only when applicable to the application |
+| G - Global tech/Web3 builder | verified contribution and relevant technical result | problem, framing, approach/decision, outcome/evidence, and insight |
+
+These tracks inform future presets and evaluation rubrics; they do not change card storage.
+
+### 8.6 Future Application Writing Outputs
+
+After grounded preview behavior is implemented and verified, Studio should extend its output
+intent model with application writing:
+
+- `cover_letter` / 자기소개서
+- `application_answer` / supplied-question response
+
+These outputs use two separately governed evidence sources:
+
+| Source layer | Contains | Claim policy |
+|---|---|---|
+| Personal fact source | approved career cards and their evidence | Personal experience, role, result, metric, and skill claims must be grounded here. |
+| Target context source | user-provided job description, organization context, question, character limit, and evaluation competency | Organization/role fit and question-response framing must be grounded here. |
+
+Application writing differs from resume and portfolio generation:
+
+| Output | Primary transformation |
+|---|---|
+| Resume | compress verified evidence for rapid screening |
+| Portfolio | explain selected evidence through problem, decision, outcome, and insight |
+| Cover letter / 자기소개서 | connect selected personal evidence to a specific role or organization and explain contribution/motivation |
+| Application answer | answer one evaluation question using the best-supported episode under its length and competency constraints |
+
+Future application-writing preview must expose:
+
+- interpreted question intent or evaluated competency;
+- selected card IDs and the reason each was selected;
+- personal facts used from cards;
+- supplied target-context statements used;
+- assumptions and missing information;
+- draft answer and character-count compliance.
+
+It must not generate personal facts outside cards or invent organization-specific motivation
+that was not supplied or explicitly confirmed by the user.
+
+### 8.7 Efficiency And Evaluation
+
+- Prompt-harness changes must be compared on factual grounding, parse reliability, output
+  usability, latency, and input/output token counts.
+- For Google Gemini evaluation, token measurement should use provider response usage
+  metadata and structured output capability where adopted.
+- Context caching must not be added merely by assumption; it should be used only when
+  measured common prompt context is large and repeated enough to justify it.
 
 ## 9. Design Requirements
 
@@ -410,19 +529,23 @@ For the next Studio cycle, these remain out of scope:
 - Invalid card edits are rejected.
 - Build actions do not mutate card files.
 
-## 12. Cycle 11 Decisions
+## 12. Historical Cycle 11 Decisions
 
 These decisions are fixed for the first Studio implementation cycle.
 
 ### D-001: Studio AI fallback behavior
 
-If no `ANTHROPIC_API_KEY` is available, `/studio` must use a deterministic demo/mock refinement path.
+If no configured supported AI provider is available, `/studio` must use a deterministic
+demo/mock refinement path.
 
 Rationale:
 
 - keeps UI development testable
 - avoids making the first Studio cycle dependent on live API configuration
 - preserves the review-before-save workflow
+
+Updated by Cycles 17-19: a configured provider is resolved through `AI_PROVIDER` and its
+server-side key; provider configuration and live connection verification are distinct states.
 
 ### D-002: First Studio save behavior
 
@@ -454,3 +577,32 @@ Rationale:
 
 - covers capture, refinement, preview, and output preparation
 - distinct from the existing admin `/dashboard`
+
+## 13. Post-Cycle 19 Decisions
+
+### D-006: Provider-neutral Studio configuration
+
+Studio must not assume Anthropic as the only live provider. Provider configuration is selected
+server-side and currently supports Anthropic and Google Gemini.
+
+### D-007: Configuration is not connectivity
+
+The lightweight status indicator reports whether configuration appears present. A live
+connection request is user-triggered separately and may fail because of authentication, quota,
+rate limiting, networking, or provider errors.
+
+### D-008: Next harness direction
+
+Cycle 20 should implement grounded preview behavior before expanding generative polish:
+source facts, assumptions, meaningful follow-up questions, and intent-specific drafts should
+be inspectable before save. The chosen prompt strategy must be supported by the research
+evaluation document rather than assumed.
+
+### D-009: Application writing follows grounded preview
+
+After Cycle 20 verifies the grounded preview contract, the next feature cycle should add
+application-writing harness capability for 자기소개서 and supplied-question answers.
+
+It must treat cards as the only source for personal factual claims and treat user-supplied
+job/organization/question context as a separate source for tailoring. Resume and portfolio
+generation remain separate transformations rather than being reused as generic long-form prose.

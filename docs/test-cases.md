@@ -149,6 +149,56 @@ This document is the product-level test case specification for the card-based re
 | TC-DASH-048 | Reject visual traversal path | Client saves path escaping repo | `../outside.png` | HTTP 422 and original file unchanged. | 동등분할/오류추정 |
 | TC-PORT-001 | Portfolio missing visual rendering | Renderer receives card with missing visual | Card with missing visual path | Placeholder renders and deck creation succeeds. | 시나리오 |
 | TC-PORT-002 | Portfolio narrative toggle | Renderer builds with `--no-narrative` | Card with narrative text | Narrative text is excluded from PPTX. | 시나리오 |
+| TC-STUDIO-001 | Studio route | Client opens creation workspace | `GET /studio` | HTTP 200 and raw input, intent, preview, save, and dashboard-navigation hooks exist. | 시나리오 |
+| TC-STUDIO-002 | Admin route regression | Client opens admin surface | `GET /dashboard` | HTTP 200 and existing dashboard remains available. | 회귀/시나리오 |
+| TC-STUDIO-003 | Raw input validation | Refine receives empty or whitespace text | `POST /api/studio/refine` | HTTP 400 with clear input error. | 동등분할/경곗값분석 |
+| TC-STUDIO-004 | Intent validation | Refine receives each supported or unsupported intent | `resume`, `portfolio`, `both`, `linkedin` | Supported intents expose their output surfaces; unsupported intent is rejected. | 동등분할 |
+| TC-STUDIO-005 | Mock missing-information preview | No LLM key is configured and raw input lacks evidence | Bare activity note | Deterministic draft includes missing-info prompts and `refine_source=mock`. | 동등분할 |
+| TC-STUDIO-006 | New draft persistence | User saves reviewed Studio draft | Valid refined draft | Canonical MDX is created as `draft` and passes card validation. | 상태전이 |
+| TC-STUDIO-007 | Raw input privacy | Save request includes source raw text | Draft plus sentinel raw value | Saved MDX does not contain raw input unless a future explicit option exists. | 오류추정 |
+| TC-STUDIO-008 | Duplicate draft ID | Refined title maps to existing slug | Save same draft twice | HTTP 409 and existing card is not overwritten. | 오류추정 |
+| TC-STUDIO-009 | Editable preview handoff | User edits generated output before saving | Edited summary/body/bullet | Saved card contains approved edit and output actions use saved ID. | 상태전이 |
+| TC-AI-001 | Environment loading safety | Server starts with local env file | `.env` or `.env.local` | Values load server-side without overwriting process vars or exposing secrets in UI. | 오류추정 |
+| TC-AI-002 | Provider resolution | Provider/key combinations are configured | Anthropic, Google, aliases, model override | Correct provider/model/key precedence is applied without returning key value. | 결정테이블 |
+| TC-AI-003 | Placeholder key detection | Configuration contains placeholder key | `your_key_here` | Status remains mock/unconfigured. | 동등분할 |
+| TC-AI-004 | Configuration status semantics | Status endpoint is requested | `GET /api/studio/ai-status` | Reports configured state only; it does not claim live connectivity or leak keys. | 상태전이/오류추정 |
+| TC-AI-005 | User-triggered live connection check | Provider call succeeds or fails | `POST /api/studio/ai-check` with fake provider | Success reports connected; failures map to safe error code without key leakage. | 결정테이블 |
+| TC-AI-006 | Gemini adapter | Google provider is configured | Fake Google client response | Gemini refine/check paths return output using configured model. | 동등분할 |
+| TC-AI-007 | LLM refine fallback | Configured refine call raises or returns malformed output | Fake LLM failure | Studio returns mock draft instead of failing the authoring workflow. | 오류추정 |
+
+## Planned Grounded-Harness Test Cases
+
+These cases follow the research audit but are not claims about the current implementation.
+They should become automated or evaluated tests in the implementation cycle that changes the
+prompt contract.
+
+| 고유번호 | 테스트 대상 | 테스트 조건 | 테스트 데이터 | 예상 결과 | 기법 |
+|---|---|---|---|---|---|
+| PT-GROUND-001 | Unsupported metric prevention | Source note contains no number | Bare project note | No generated claim contains a numeric result; metric appears as missing question only. | 변형관계/오류추정 |
+| PT-GROUND-002 | Fact preservation across intent | Same source is refined for resume and portfolio | One dated, measured activity | Both outputs preserve date, metric, evidence, and role consistently. | 변형관계 |
+| PT-GROUND-003 | Team attribution uncertainty | Input mentions team result without personal responsibility | Team project note | Assumption/missing-info marks contribution unclear; no sole-ownership claim is produced. | 동등분할/오류추정 |
+| PT-GROUND-004 | Evidence enrichment | Second input adds a URL to otherwise identical note | Note without/with repo URL | Evidence prompt is removed or satisfied without changing unrelated facts. | 변형관계 |
+| PT-GROUND-005 | Track K quality rubric | Intent targets Korean formal application | Korean formal activity fixture | Draft is concise, formal, job-relevant, and factual under Track K rubric. | 시나리오/체크리스트 |
+| PT-GROUND-006 | Track G portfolio rubric | Intent targets global tech/Web3 portfolio | Technical project fixture | Draft separates problem, contribution, decision, outcome/evidence, and insight. | 시나리오/체크리스트 |
+| PT-GROUND-007 | Structured response reliability | LLM is called for benchmark corpus | 12 anonymized inputs | Parsed structured response succeeds for all evaluation calls. | 경곗값분석/통계적 평가 |
+| PT-GROUND-008 | Harness efficiency comparison | Candidate prompts run on same corpus/model | Baseline, grounded one-shot, staged candidate | Token/latency/quality table is captured; selected candidate satisfies quality gate with lowest usable-draft token cost. | 비교평가 |
+| PT-APP-001 | Cover-letter source separation | Cover-letter output is generated | Approved cards plus supplied organization/JD context | Personal claims cite card facts only; organization/fit language uses supplied target context only. | 결정테이블/오류추정 |
+| PT-APP-002 | Question interpretation | User supplies an application question | Collaboration, problem-solving, motivation, or ethics question | Preview exposes interpreted competency/question intent before answer draft. | 동등분할 |
+| PT-APP-003 | Episode selection | Several cards could answer one question | Cards with different evidence strength | Preview identifies selected card(s) and a reason tied to the question. | 시나리오 |
+| PT-APP-004 | Missing target context | User requests motivation/fit answer without organization or JD evidence | Card set plus motivation question only | Draft does not invent organization motivation; missing target context is requested. | 변형관계/오류추정 |
+| PT-APP-005 | Character-count boundary | Answer has supplied minimum/maximum length | Below, at, and above character limit | Preview reports count/compliance and generated submission version respects the defined boundary. | 경곗값분석 |
+| PT-APP-006 | Blind-hiring restriction | Target context forbids personal-background attributes | NCS-style application instruction plus cards | Draft excludes prohibited identity/background information not required for competency proof. | 결정테이블/시나리오 |
+
+## Requirement Trace
+
+| Requirement area | Requirement source | Automated cases | Manual/evaluation evidence |
+|---|---|---|---|
+| Card storage and CLI outputs | `requirements.md` | `TC-CARD-*`, `TC-SEL-*`, `TC-CLI-*`, `TC-BUILD-*`, `TC-PRESET-*` | `docs/acceptance-v1.md` |
+| Admin dashboard | `requirements-dashboard.md` sections 2.1, 6, 7 | `TC-DASH-*` | `MT-DASH-*`; `docs/acceptance-studio.md` admin regression section |
+| Studio capture, preview, save | `requirements-dashboard.md` section 5 | `TC-STUDIO-*` | `docs/acceptance-studio.md` |
+| Optional LLM and provider configuration | `requirements-dashboard.md` section 8 and D-006/D-007 | `TC-LLM-*`, `TC-AI-*` | `docs/acceptance-studio.md` |
+| Grounded intent-specific drafting | `requirements-dashboard.md` sections 8.4-8.5, 8.7 and D-008 | `PT-GROUND-*` (planned) | `docs/research/llm-harness-evaluation.md` |
+| Application writing from canonical memory | `requirements-dashboard.md` section 8.6 and D-009 | `PT-APP-*` (planned) | Future application-writing acceptance evidence |
 
 ## Manual Acceptance Test Cases
 
@@ -165,6 +215,10 @@ This document is the product-level test case specification for the card-based re
 | MT-DASH-004 | Dashboard card creation | Dashboard is running | New draft card data | Draft card is created and appears in list after refresh. | 시나리오 |
 | MT-DASH-005 | Dashboard detail editing | Existing draft/test card is open | Tags, metrics, evidence, visuals, body edits | Save succeeds, table refreshes, and `uv run pcli validate <id>` passes. | 시나리오 |
 | MT-DASH-006 | Dashboard invalid edit safety | Existing draft/test card is open | Invalid type, invalid evidence, missing/absolute/traversal visual path | Save is rejected and original MDX remains unchanged. | 시나리오 |
+| MT-STUDIO-001 | Studio creation flow | Local dashboard is running | Messy real activity text, `Both` intent | Preview appears, can be edited, saves as draft card, and is visible in admin dashboard. | 시나리오 |
+| MT-STUDIO-002 | Mock versus AI source clarity | Provider is alternately unavailable and available | Same non-sensitive input | UI identifies mock or LLM source without representing configuration as verified connection. | 상태전이 |
+| MT-STUDIO-003 | Live provider check | Google or Anthropic key is configured server-side | User clicks connection check | Success/failure feedback is clear and no key is exposed. | 시나리오/오류추정 |
+| MT-STUDIO-004 | Resume and portfolio use of saved card | Draft is reviewed and promoted/selected as appropriate | Saved real card | Existing build flows produce intended PDF/PPTX without source corruption. | 상태전이 |
 
 ## Maintenance Notes
 
