@@ -250,7 +250,7 @@ def test_refine_llm_overlong_summary_draft_saves(client, repo, monkeypatch):
     monkeypatch.setattr(llm_mod, "_cache_read", lambda *a, **k: None)
     monkeypatch.setattr(llm_mod, "_cache_write", lambda *a, **k: None)
     rv_refine = client.post(
-        "/api/studio/refine", json={"raw_text": "Long summary project", "intent": "both"}
+        "/api/studio/refine", json={"raw_text": "Long summary project 2024-01", "intent": "both"}
     )
     assert rv_refine.status_code == 200
     draft = rv_refine.get_json()["draft"]
@@ -299,7 +299,7 @@ def test_refine_llm_invalid_evidence_type_draft_saves(client, repo, monkeypatch)
     monkeypatch.setattr(llm_mod, "_cache_read", lambda *a, **k: None)
     monkeypatch.setattr(llm_mod, "_cache_write", lambda *a, **k: None)
     rv_refine = client.post(
-        "/api/studio/refine", json={"raw_text": "Evidence test", "intent": "both"}
+        "/api/studio/refine", json={"raw_text": "Evidence test 2024-01", "intent": "both"}
     )
     assert rv_refine.status_code == 200
     draft = rv_refine.get_json()["draft"]

@@ -123,7 +123,12 @@ def test_refine_both_intent_returns_both(client):
     assert "portfolio_body" in body["draft"]
 
 
-def test_refine_returns_missing_info_structured(client):
+def test_refine_returns_missing_info_structured(client, monkeypatch):
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     rv = client.post("/api/studio/refine", json={"raw_text": RAW_BARE, "intent": "both"})
     assert rv.status_code == 200
     body = rv.get_json()
@@ -194,7 +199,12 @@ def test_studio_save_does_not_store_raw_input(client, repo):
     assert "SENSITIVE_RAW_TEXT" not in saved
 
 
-def test_studio_save_does_not_persist_raw_body(client, repo):
+def test_studio_save_does_not_persist_raw_body(client, repo, monkeypatch):
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     raw = "My Awesome Project\nSECRET_BODY_PHRASE private rough notes that must never be stored"
     rv_refine = client.post("/api/studio/refine", json={"raw_text": raw, "intent": "both"})
     assert rv_refine.status_code == 200

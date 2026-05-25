@@ -657,3 +657,170 @@ def test_prompt_does_not_contain_persona_wording():
     from scripts.llm import _STUDIO_REFINE_PROMPT
 
     assert "you are a" not in _STUDIO_REFINE_PROMPT.lower()
+
+
+# ── ISSUE-1 (v2): undated LLM draft is not saveable without confirmed period ──
+
+
+def test_llm_undated_draft_has_null_period_start(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("AI_MODEL", raising=False)
+
+    resp = _fake_llm_response({"missing_info": []})
+    monkeypatch.setattr(llm_mod, "_call", lambda *a, **kw: resp)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: MagicMock())
+
+    from scripts.llm import studio_refine_llm
+
+    result = studio_refine_llm("Built something without any date.", "resume", cache_dir=tmp_path)
+    assert result["draft"]["period_start"] is None
+
+
+def test_save_rejects_undated_draft(client, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+
+    resp = _fake_llm_response({"missing_info": []})
+    fake = _fake_anthropic_client(resp)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: fake)
+    monkeypatch.setattr(llm_mod, "_cache_read", lambda *a, **k: None)
+    monkeypatch.setattr(llm_mod, "_cache_write", lambda *a, **k: None)
+
+    rv_refine = client.post(
+        "/api/studio/refine",
+        json={"raw_text": "Built something without any date.", "intent": "resume"},
+    )
+    assert rv_refine.status_code == 200
+    draft = rv_refine.get_json()["draft"]
+    assert draft["period_start"] is None
+
+    rv_save = client.post("/api/studio/save", json={"draft": draft})
+    assert rv_save.status_code == 422
+    assert "period_start" in rv_save.get_json()["error"].lower()
+
+
+def test_save_accepts_undated_draft_when_period_filled(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(dash_mod, "REPO_ROOT", tmp_path)
+    (tmp_path / "cards").mkdir(exist_ok=True)
+
+    draft = {
+        "title": "Period-filled Card",
+        "type": "project",
+        "period_start": "2024-06-01",  # user filled in the date
+        "summary": "A test summary.",
+        "tags": {"domain": [], "skill": [], "audience": []},
+        "metrics": [],
+        "evidence": [],
+        "resume_bullet": "• Built thing",
+        "portfolio_body": "## Problem\n\nA problem.",
+    }
+    rv = client.post("/api/studio/save", json={"draft": draft})
+    assert rv.status_code == 201
+
+
+# ── ISSUE-6: grounded_ver in cache key invalidates pre-grounding cache entries ─
+
+
+def test_studio_refine_cache_payload_contains_grounded_ver(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("AI_MODEL", raising=False)
+
+    written_payloads: list[dict] = []
+
+    def _fake_cache_write(key, data, cache_dir):
+        written_payloads.append(data)
+
+    def _fake_cache_read(key, cache_dir):
+        return None  # always miss — new key should not match old key
+
+    monkeypatch.setattr(llm_mod, "_cache_read", _fake_cache_read)
+    monkeypatch.setattr(llm_mod, "_cache_write", _fake_cache_write)
+    monkeypatch.setattr(llm_mod, "_call", lambda *a, **kw: _fake_llm_response())
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: MagicMock())
+
+    from scripts.llm import _cache_key, studio_refine_llm
+
+    studio_refine_llm("some project text", "resume", cache_dir=tmp_path)
+
+    # The new payload should include grounded_ver
+    new_payload = {
+        "schema_ver": llm_mod._SCHEMA_VER,
+        "grounded_ver": 1,
+        "task": "studio_refine",
+        "provider": "anthropic",
+        "model": llm_mod.MODEL,
+        "intent": "resume",
+        "raw_text": "some project text",
+    }
+    old_payload = {k: v for k, v in new_payload.items() if k != "grounded_ver"}
+
+    assert _cache_key(new_payload) != _cache_key(old_payload)
+
+
+# ── ISSUE-7 (v2): checkpoint must not persist raw exception text ─────────────
+
+
+def test_evaluator_checkpoint_does_not_persist_raw_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("AI_MODEL", raising=False)
+
+    sentinel = "SECRET_CREDENTIAL_12345"
+
+    def _fake_call_with_meta(*a, **kw):
+        raise Exception(f"Auth failed: {sentinel}")
+
+    monkeypatch.setattr(llm_mod, "_call_with_meta", _fake_call_with_meta)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: MagicMock())
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output" / "evaluations").mkdir(parents=True)
+
+    from scripts.evaluate_studio_grounding import main
+
+    main(["--live", "--provider", "anthropic", "--max-calls", "1"])
+    cp = next((tmp_path / "output" / "evaluations").glob("*.json"))
+    content = cp.read_text(encoding="utf-8")
+    assert sentinel not in content
+    assert "safe_error_category" in content
+
+
+# ── ISSUE-8 (v2): 우리 inside organization names must not fire CONTRIBUTION_UNCLEAR
+
+
+def test_mock_org_name_uri_does_not_trigger_contribution_unclear(client, monkeypatch):
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    rv = client.post(
+        "/api/studio/refine",
+        json={
+            "raw_text": "우리은행 데이터 분석 프로젝트를 수행했습니다.",
+            "intent": "both",
+        },
+    )
+    body = rv.get_json()
+    codes = [m["code"] for m in body["missing_info"]]
+    assert "CONTRIBUTION_UNCLEAR" not in codes
+
+
+def test_mock_uri_pronoun_still_triggers_contribution_unclear(client, monkeypatch):
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    rv = client.post(
+        "/api/studio/refine",
+        json={
+            "raw_text": "우리 팀이 NFT 마켓플레이스를 개발했습니다.",
+            "intent": "both",
+        },
+    )
+    body = rv.get_json()
+    codes = [m["code"] for m in body["missing_info"]]
+    assert "CONTRIBUTION_UNCLEAR" in codes

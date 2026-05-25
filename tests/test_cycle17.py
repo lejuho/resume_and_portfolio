@@ -209,6 +209,9 @@ def test_refine_unsupported_provider_falls_back_to_mock(client, monkeypatch):
 def test_refine_placeholder_key_falls_back_to_mock(client, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "your_key_here")
     monkeypatch.delenv("AI_API_KEY", raising=False)
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     rv = client.post(
         "/api/studio/refine", json={"raw_text": "Some project notes", "intent": "both"}
     )

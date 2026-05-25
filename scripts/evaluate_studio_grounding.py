@@ -156,9 +156,10 @@ def _run_call(caller_fn, raw_text: str) -> dict:
     except Exception as exc:
         latency = time.monotonic() - t0
         is_quota = _is_quota_error(exc)
+        # Print raw message to stderr only; never persist credential-bearing text to disk
+        print(f"  [err] {str(exc)[:200]}", file=sys.stderr)
         return {
             "ok": False,
-            "error": str(exc)[:200],
             "safe_error_category": _safe_error_category(exc),
             "quota_error": is_quota,
             "latency_s": round(latency, 2),

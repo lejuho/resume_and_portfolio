@@ -520,6 +520,7 @@ def studio_refine_llm(
 
     payload = {
         "schema_ver": _SCHEMA_VER,
+        "grounded_ver": 1,  # invalidates pre-grounding (cycle ≤19) cached responses
         "task": "studio_refine",
         "provider": cfg["provider"],
         "model": resolved_model,
@@ -586,15 +587,13 @@ def studio_refine_llm(
     insight = _narrative("insight")
     decisions_tradeoffs = _narrative("decisions_tradeoffs")
 
-    from datetime import date as _date
-
-    # Resolve period_start from raw input; do not fall back silently to today
+    # Resolve period_start from raw input only; no date → None (unsaveable placeholder)
     dates_in_raw = _LLM_DATE_RE.findall(raw_text)
     if dates_in_raw:
         year_r, month_r = dates_in_raw[0]
-        period_start = f"{year_r}-{month_r}-01"
+        period_start: str | None = f"{year_r}-{month_r}-01"
     else:
-        period_start = str(_date.today())
+        period_start = None
         # Guard: add MISSING_PERIOD if the LLM did not already ask for it
         mi_codes = {m.get("code", "") for m in missing_info}
         if "MISSING_PERIOD" not in mi_codes:

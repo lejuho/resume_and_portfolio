@@ -372,7 +372,9 @@ def _title_to_slug(title: str) -> str:
 
 
 _TEAM_RE = re.compile(
-    r"\b(?:we|team|our|collaborated|together|co-)\b|(?:팀|함께|공동|협업|우리|같이)",
+    r"\b(?:we|team|our|collaborated|together|co-)\b"
+    r"|(?:팀|함께|공동|협업|같이)"
+    r"|우리(?=[\s가는도와의팀들]|$)",  # 우리 only as pronoun; not inside org names like 우리은행
     re.IGNORECASE,
 )
 
@@ -624,7 +626,19 @@ def api_studio_save():
         return jsonify({"ok": False, "error": "draft.title is required"}), 400
 
     card_id = _title_to_slug(title)
-    period_start = draft.get("period_start") or str(_date.today())
+    period_start = draft.get("period_start") or None
+    if not period_start:
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": (
+                        "draft.period_start is required — confirm when this happened before saving"
+                    ),
+                }
+            ),
+            422,
+        )
 
     target = _new_card_path(card_id, period_start)
     if target is None:

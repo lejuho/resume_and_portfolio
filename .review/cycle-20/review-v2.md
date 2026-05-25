@@ -108,3 +108,38 @@ BLOCKED
 
 - No material feature scope expansion found.
 - `.review/cycle-20/.read-counter` remains untracked and outside the reviewed diff.
+
+---
+
+## RESOLVED
+
+### Issue Classification
+- ISSUE-1 (v2 restatement): APPLY
+- ISSUE-6: APPLY
+- ISSUE-7: APPLY
+- ISSUE-8: APPLY
+
+### Applied
+
+RESOLVED: ISSUE-1 (v2) — undated LLM draft sets period_start=None; save rejects without confirmed date
+- `scripts/llm.py` `studio_refine_llm()`: undated input now sets `period_start = None` (previously `str(date.today())`).
+- `scripts/dashboard.py` `api_studio_save()`: added guard — if `draft.period_start` is falsy, return 422 with message "draft.period_start is required".
+- `tests/test_cycle20.py`: added `test_llm_undated_draft_has_null_period_start`, `test_save_rejects_undated_draft`, `test_save_accepts_undated_draft_when_period_filled`.
+- Cascading test isolation fixes: `test_cycle17::test_refine_placeholder_key_falls_back_to_mock`, `test_studio::test_refine_returns_missing_info_structured`, `test_studio::test_studio_save_does_not_persist_raw_body` — added `delenv` for `AI_PROVIDER`, `GOOGLE_API_KEY`, `GEMINI_API_KEY`.
+- `test_llm_studio.py` save-flow tests: added date to raw text (`2024-01`) so period_start resolves correctly.
+자동 check: pytest ✅ (372 passed)
+
+RESOLVED: ISSUE-6 — cache key includes grounded_ver to invalidate pre-cycle-20 studio_refine entries
+- `scripts/llm.py`: added `"grounded_ver": 1` to studio_refine cache payload; old entries (lacking this key) produce a different SHA-256 key and are never served.
+- `tests/test_cycle20.py`: `test_studio_refine_cache_payload_contains_grounded_ver` asserts new and old payload keys differ.
+자동 check: pytest ✅
+
+RESOLVED: ISSUE-7 — evaluator checkpoint no longer persists raw exception text
+- `scripts/evaluate_studio_grounding.py`: removed `"error": str(exc)[:200]` from checkpoint record; raw message printed to stderr only.
+- `tests/test_cycle20.py`: `test_evaluator_checkpoint_does_not_persist_raw_error` asserts sentinel credential string absent from written JSON.
+자동 check: pytest ✅
+
+RESOLVED: ISSUE-8 — Korean 우리 restricted to pronoun context via lookahead
+- `scripts/dashboard.py` `_TEAM_RE`: `우리` now matched only when followed by `[\s가는도와의팀들]` or end of string; compound nouns like `우리은행` no longer trigger `CONTRIBUTION_UNCLEAR`.
+- `tests/test_cycle20.py`: `test_mock_org_name_uri_does_not_trigger_contribution_unclear` and `test_mock_uri_pronoun_still_triggers_contribution_unclear` added.
+자동 check: pytest ✅ (372 passed), ruff ✅
