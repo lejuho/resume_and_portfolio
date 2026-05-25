@@ -381,11 +381,11 @@ def test_evaluator_dry_run_prints_fixture_count(capsys):
 def test_evaluator_dry_run_makes_no_provider_calls(monkeypatch):
     called = []
 
-    def _fake_call(*a, **kw):
+    def _fake_call_with_meta(*a, **kw):
         called.append(True)
-        return "{}"
+        return "{}", {}
 
-    monkeypatch.setattr(llm_mod, "_call", _fake_call)
+    monkeypatch.setattr(llm_mod, "_call_with_meta", _fake_call_with_meta)
 
     from scripts.evaluate_studio_grounding import main
 
@@ -401,11 +401,11 @@ def test_evaluator_live_stops_at_max_calls(tmp_path, monkeypatch):
 
     call_count = [0]
 
-    def _fake_call(*a, **kw):
+    def _fake_call_with_meta(*a, **kw):
         call_count[0] += 1
-        return _fake_llm_response()
+        return _fake_llm_response(), {}
 
-    monkeypatch.setattr(llm_mod, "_call", _fake_call)
+    monkeypatch.setattr(llm_mod, "_call_with_meta", _fake_call_with_meta)
     monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: MagicMock())
     monkeypatch.chdir(tmp_path)
     (tmp_path / "output" / "evaluations").mkdir(parents=True)
@@ -423,10 +423,10 @@ def test_evaluator_live_checkpoints_after_each_call(tmp_path, monkeypatch):
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("AI_MODEL", raising=False)
 
-    def _fake_call(*a, **kw):
-        return _fake_llm_response()
+    def _fake_call_with_meta(*a, **kw):
+        return _fake_llm_response(), {}
 
-    monkeypatch.setattr(llm_mod, "_call", _fake_call)
+    monkeypatch.setattr(llm_mod, "_call_with_meta", _fake_call_with_meta)
     monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: MagicMock())
     monkeypatch.chdir(tmp_path)
     (tmp_path / "output" / "evaluations").mkdir(parents=True)
@@ -449,13 +449,13 @@ def test_evaluator_live_stops_on_quota_error(tmp_path, monkeypatch):
 
     call_count = [0]
 
-    def _fake_call(*a, **kw):
+    def _fake_call_with_meta(*a, **kw):
         call_count[0] += 1
         if call_count[0] >= 2:
             raise Exception("429 rate limit exceeded")
-        return _fake_llm_response()
+        return _fake_llm_response(), {}
 
-    monkeypatch.setattr(llm_mod, "_call", _fake_call)
+    monkeypatch.setattr(llm_mod, "_call_with_meta", _fake_call_with_meta)
     monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: MagicMock())
     monkeypatch.chdir(tmp_path)
     (tmp_path / "output" / "evaluations").mkdir(parents=True)
@@ -466,3 +466,194 @@ def test_evaluator_live_stops_on_quota_error(tmp_path, monkeypatch):
     assert rc == 0
     # Stopped after quota error — did not exhaust max-calls
     assert call_count[0] < 10
+
+
+# ── ISSUE-1: period_start derived from raw date; undated adds MISSING_PERIOD ──
+
+
+def test_llm_dated_input_uses_raw_date_not_today(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("AI_MODEL", raising=False)
+
+    resp = _fake_llm_response({"source_facts": ["Date: 2024-03"], "missing_info": []})
+    monkeypatch.setattr(llm_mod, "_call", lambda *a, **kw: resp)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: MagicMock())
+
+    from scripts.llm import studio_refine_llm
+
+    result = studio_refine_llm("Built DeFi contract in 2024-03.", "resume", cache_dir=tmp_path)
+    assert result["draft"]["period_start"] == "2024-03-01"
+
+
+def test_llm_undated_input_adds_missing_period(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("AI_MODEL", raising=False)
+
+    resp = _fake_llm_response({"missing_info": []})
+    monkeypatch.setattr(llm_mod, "_call", lambda *a, **kw: resp)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: MagicMock())
+
+    from scripts.llm import studio_refine_llm
+
+    result = studio_refine_llm("Built something without any date.", "resume", cache_dir=tmp_path)
+    codes = [m["code"] for m in result["missing_info"]]
+    assert "MISSING_PERIOD" in codes
+
+
+# ── ISSUE-2: Korean team markers trigger CONTRIBUTION_UNCLEAR ────────────────
+
+
+def test_mock_korean_team_signal_adds_contribution_unclear(client, monkeypatch):
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    rv = client.post(
+        "/api/studio/refine",
+        json={
+            "raw_text": "팀 프로젝트로 스마트 컨트랙트를 개발했습니다.",
+            "intent": "both",
+        },
+    )
+    body = rv.get_json()
+    codes = [m["code"] for m in body["missing_info"]]
+    assert "CONTRIBUTION_UNCLEAR" in codes
+
+
+def test_mock_korean_solo_no_contribution_unclear(client, monkeypatch):
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    rv = client.post(
+        "/api/studio/refine",
+        json={
+            "raw_text": "DeFi 스테이킹 컨트랙트를 단독으로 설계하고 배포했습니다.",
+            "intent": "both",
+        },
+    )
+    body = rv.get_json()
+    codes = [m["code"] for m in body["missing_info"]]
+    assert "CONTRIBUTION_UNCLEAR" not in codes
+
+
+# ── ISSUE-3: JS grounding list preserves <ul> ID across renders ──────────────
+
+
+def test_studio_js_grounding_list_does_not_destroy_ul_id():
+    import pathlib
+
+    js = pathlib.Path("scripts/static/studio.js").read_text(encoding="utf-8")
+    assert "replaceWith" not in js
+
+
+# ── ISSUE-4: Google structured-output schema enforces required grounding fields
+
+
+def test_grounded_draft_schema_has_required_grounding_fields():
+    from scripts.llm import _GROUNDED_DRAFT_SCHEMA
+
+    required = _GROUNDED_DRAFT_SCHEMA.get("required", [])
+    for field in ("source_facts", "assumptions", "missing_info"):
+        assert field in required, f"missing required field: {field}"
+
+
+def test_google_structured_call_uses_response_schema(monkeypatch, tmp_path):
+    monkeypatch.setenv("AI_PROVIDER", "google")
+    monkeypatch.setenv("GOOGLE_API_KEY", "gkey-fake")
+    monkeypatch.delenv("AI_MODEL", raising=False)
+
+    captured: dict = {}
+
+    def _fake_call_with_meta(client, prompt, model, response_json=False):
+        captured["response_json"] = response_json
+        return _fake_llm_response(), {}
+
+    monkeypatch.setattr(llm_mod, "_call_with_meta", _fake_call_with_meta)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: MagicMock())
+
+    from scripts.llm import studio_refine_llm
+
+    studio_refine_llm("test project notes", "both", cache_dir=tmp_path)
+    assert captured.get("response_json") is True
+
+
+# ── ISSUE-5: evaluator checkpoint records token fields and CLI provider wins ──
+
+
+def test_evaluator_live_checkpoint_has_token_fields(tmp_path, monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("AI_MODEL", raising=False)
+
+    fake_usage = {"input_tokens": 42, "output_tokens": 77, "total_tokens": 119}
+
+    def _fake_call_with_meta(*a, **kw):
+        return _fake_llm_response(), fake_usage
+
+    monkeypatch.setattr(llm_mod, "_call_with_meta", _fake_call_with_meta)
+    monkeypatch.setattr(llm_mod, "_build_client", lambda *a, **k: MagicMock())
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output" / "evaluations").mkdir(parents=True)
+
+    from scripts.evaluate_studio_grounding import main
+
+    main(["--live", "--provider", "anthropic", "--max-calls", "1"])
+    cp = next((tmp_path / "output" / "evaluations").glob("*.json"))
+    data = json.load(cp.open())
+    record = data[0]
+    assert record.get("input_tokens") == 42
+    assert record.get("output_tokens") == 77
+    assert record.get("total_tokens") == 119
+
+
+def test_evaluator_cli_provider_overrides_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "google")  # env says google
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("AI_MODEL", raising=False)
+
+    captured: dict = {}
+
+    def _fake_build_client(cfg):
+        captured["provider"] = cfg["provider"]
+        return MagicMock()
+
+    def _fake_call_with_meta(*a, **kw):
+        return _fake_llm_response(), {}
+
+    monkeypatch.setattr(llm_mod, "_build_client", _fake_build_client)
+    monkeypatch.setattr(llm_mod, "_call_with_meta", _fake_call_with_meta)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "output" / "evaluations").mkdir(parents=True)
+
+    from scripts.evaluate_studio_grounding import main
+
+    rc = main(["--live", "--provider", "anthropic", "--max-calls", "1"])
+    assert rc == 0
+    assert captured.get("provider") == "anthropic"
+
+
+# ── user-direction-001: prompt uses grounded procedure, not persona ───────────
+
+
+def test_prompt_describes_grounded_procedure():
+    from scripts.llm import _STUDIO_REFINE_PROMPT
+
+    lower = _STUDIO_REFINE_PROMPT.lower()
+    assert "evidence-grounded" in lower or "evidence grounded" in lower
+    assert "source_facts" in _STUDIO_REFINE_PROMPT
+    assert "missing_info" in _STUDIO_REFINE_PROMPT
+    assert "{intent}" in _STUDIO_REFINE_PROMPT
+    assert "{raw_text}" in _STUDIO_REFINE_PROMPT
+
+
+def test_prompt_does_not_contain_persona_wording():
+    from scripts.llm import _STUDIO_REFINE_PROMPT
+
+    assert "you are a" not in _STUDIO_REFINE_PROMPT.lower()

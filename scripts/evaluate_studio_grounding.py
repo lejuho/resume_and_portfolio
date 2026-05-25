@@ -82,20 +82,20 @@ Raw notes:
 
 
 def _baseline_call(client, raw_text: str, intent: str, model: str) -> dict:
-    from scripts.llm import _call
+    from scripts.llm import _call_with_meta
 
     prompt = _BASELINE_PROMPT.format(intent=intent, raw_text=raw_text)
-    return {"prompt": prompt, "caller": lambda: _call(client, prompt, model)}
+    return {"prompt": prompt, "caller": lambda: _call_with_meta(client, prompt, model)}
 
 
 def _grounded_call(client, raw_text: str, intent: str, model: str, provider: str) -> dict:
-    from scripts.llm import _STUDIO_REFINE_PROMPT, _call
+    from scripts.llm import _STUDIO_REFINE_PROMPT, _call_with_meta
 
     prompt = _STUDIO_REFINE_PROMPT.format(intent=intent, raw_text=raw_text)
     use_json = provider == "google"
     return {
         "prompt": prompt,
-        "caller": lambda: _call(client, prompt, model, response_json=use_json),
+        "caller": lambda: _call_with_meta(client, prompt, model, response_json=use_json),
     }
 
 
@@ -121,10 +121,21 @@ def _is_quota_error(exc: BaseException) -> bool:
     return any(s in msg for s in _QUOTA_SIGNALS)
 
 
+def _safe_error_category(exc: BaseException) -> str:
+    msg = str(exc).lower()
+    if any(s in msg for s in ("quota", "rate", "429", "limit", "resource_exhausted")):
+        return "quota_or_rate_limit"
+    if any(s in msg for s in ("auth", "key", "401", "403", "permission", "credential")):
+        return "auth_failed"
+    if any(s in msg for s in ("network", "connect", "timeout", "dns", "unreachable")):
+        return "network_error"
+    return "provider_error"
+
+
 def _run_call(caller_fn, raw_text: str) -> dict:
     t0 = time.monotonic()
     try:
-        raw = caller_fn()
+        raw, usage = caller_fn()
         latency = time.monotonic() - t0
         try:
             json.loads(raw.strip())
@@ -132,19 +143,23 @@ def _run_call(caller_fn, raw_text: str) -> dict:
         except Exception:
             parse_ok = False
         unsupported_num = _has_unsupported_numeric(raw, raw_text) if parse_ok else None
-        return {
+        result = {
             "ok": True,
             "parse_ok": parse_ok,
             "unsupported_numeric": unsupported_num,
             "latency_s": round(latency, 2),
             "output_chars": len(raw),
         }
+        if usage:
+            result.update(usage)
+        return result
     except Exception as exc:
         latency = time.monotonic() - t0
         is_quota = _is_quota_error(exc)
         return {
             "ok": False,
             "error": str(exc)[:200],
+            "safe_error_category": _safe_error_category(exc),
             "quota_error": is_quota,
             "latency_s": round(latency, 2),
         }
@@ -185,8 +200,8 @@ def main(argv: list[str] | None = None) -> int:
         print("Pass --dry-run or --live.", file=sys.stderr)
         return 1
 
-    # Live path — resolve provider
-    os.environ.setdefault("AI_PROVIDER", args.provider)
+    # Live path — resolve provider (explicit CLI flag takes precedence)
+    os.environ["AI_PROVIDER"] = args.provider
     try:
         from scripts.llm import _build_client, resolve_provider_config
 

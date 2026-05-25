@@ -105,3 +105,48 @@ BLOCKED
 - No material scope expansion found in committed implementation files.
 - `.review/cycle-20/.read-counter` is currently untracked and is not part of the reviewed
   implementation diff.
+
+---
+
+## RESOLVED
+
+### Issue Classification
+- ISSUE-1: APPLY
+- ISSUE-2: APPLY
+- ISSUE-3: APPLY
+- ISSUE-4: APPLY
+- ISSUE-5: APPLY
+- user-direction-001: APPLY
+
+### Applied
+
+RESOLVED: ISSUE-1 — period_start resolved from raw date; MISSING_PERIOD guard added when no date
+- `scripts/llm.py`: added `_LLM_DATE_RE`; `studio_refine_llm()` now extracts YYYY-MM from raw input; undated input adds `MISSING_PERIOD` to `missing_info` and uses `date.today()` only as a fallback placeholder, never silently.
+- Tests: `test_llm_dated_input_uses_raw_date_not_today`, `test_llm_undated_input_adds_missing_period` added.
+自動 check: pytest ✅ (365 passed)
+
+RESOLVED: ISSUE-2 — Korean team markers added to `_TEAM_RE`
+- `scripts/dashboard.py`: `_TEAM_RE` extended with `팀|함께|공동|협업|우리|같이` using non-boundary alternation for Korean.
+- Tests: `test_mock_korean_team_signal_adds_contribution_unclear`, `test_mock_korean_solo_no_contribution_unclear` added.
+자동 check: pytest ✅
+
+RESOLVED: ISSUE-3 — `_renderGroundingList` preserves `<ul>` element on empty render
+- `scripts/static/studio.js`: replaced `list.replaceWith(em)` with appending a `<li>` inside the existing `<ul>`; element ID remains stable for re-renders.
+- Test: `test_studio_js_grounding_list_does_not_destroy_ul_id` added.
+자동 check: pytest ✅
+
+RESOLVED: ISSUE-4 — Google structured output uses response_schema
+- `scripts/llm.py`: `_GROUNDED_DRAFT_SCHEMA` added with `required: [source_facts, assumptions, title, type, summary, missing_info]`; `_call_with_meta()` passes `GenerateContentConfig(response_mime_type, response_schema)` when `response_json=True`.
+- Tests: `test_grounded_draft_schema_has_required_grounding_fields`, `test_google_structured_call_uses_response_schema` added.
+자동 check: pytest ✅
+
+RESOLVED: ISSUE-5 — Evaluator uses `_call_with_meta`, records token fields and safe_error_category, CLI provider takes precedence
+- `scripts/evaluate_studio_grounding.py`: `_baseline_call`/`_grounded_call` now call `_call_with_meta` returning `(text, usage)`; `_run_call` unpacks usage and writes `input_tokens`, `output_tokens`, `total_tokens` to checkpoint; errors include `safe_error_category`; `os.environ.setdefault` replaced with force assignment `os.environ["AI_PROVIDER"] = args.provider`.
+- `tests/test_cycle20.py`: all evaluator tests updated to patch `llm_mod._call_with_meta`; `test_evaluator_live_checkpoint_has_token_fields`, `test_evaluator_cli_provider_overrides_env` added.
+자동 check: pytest ✅
+
+RESOLVED: user-direction-001 — Prompt rewritten as evidence-grounded procedure
+- `scripts/llm.py` `_STUDIO_REFINE_PROMPT`: persona removed; replaced with 5-step evidence-grounded workflow (extract source_facts → identify gaps → draft resume action/context/result → draft portfolio problem/framing/approach/outcome/insight → put unsupported items in assumptions/missing_info).
+- `tests/test_cycle16.py`: `test_prompt_contains_consultant_persona` removed; `test_prompt_instructs_not_to_copy_raw_notes` updated to match new wording.
+- `tests/test_cycle20.py`: `test_prompt_describes_grounded_procedure`, `test_prompt_does_not_contain_persona_wording` added.
+자동 check: pytest ✅ (365 passed), ruff ✅

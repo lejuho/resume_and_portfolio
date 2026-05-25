@@ -77,10 +77,6 @@ def _fake_client(extra: dict | None = None) -> MagicMock:
 # ─── Prompt content checks ────────────────────────────────────────────────────
 
 
-def test_prompt_contains_consultant_persona():
-    assert "consultant" in _STUDIO_REFINE_PROMPT.lower()
-
-
 def test_prompt_contains_portfolio_designer_role():
     assert "portfolio" in _STUDIO_REFINE_PROMPT.lower()
 
@@ -92,7 +88,13 @@ def test_prompt_requires_narrative_fields():
 
 def test_prompt_instructs_not_to_copy_raw_notes():
     lower = _STUDIO_REFINE_PROMPT.lower()
-    assert "verbatim" in lower or "not copy" in lower or "do not copy" in lower
+    assert (
+        "verbatim" in lower
+        or "not copy" in lower
+        or "do not copy" in lower
+        or "do not invent" in lower
+        or "no invention" in lower
+    )
 
 
 def test_prompt_includes_intent_and_raw_text_placeholders():

@@ -371,7 +371,10 @@ def _title_to_slug(title: str) -> str:
     return slug
 
 
-_TEAM_RE = re.compile(r"\b(we|team|our|collaborated|together|co-)\b", re.IGNORECASE)
+_TEAM_RE = re.compile(
+    r"\b(?:we|team|our|collaborated|together|co-)\b|(?:팀|함께|공동|협업|우리|같이)",
+    re.IGNORECASE,
+)
 
 
 def _mock_refine(raw_text: str, intent: str) -> dict:

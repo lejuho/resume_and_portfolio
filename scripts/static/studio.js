@@ -257,10 +257,10 @@ function _renderGroundingList(sectionId, listId, items) {
   if (!section || !list) return;
   list.innerHTML = "";
   if (items.length === 0) {
-    const em = document.createElement("p");
+    const em = document.createElement("li");
     em.className = "grounding-empty";
     em.textContent = "None detected.";
-    list.replaceWith(em);
+    list.appendChild(em);
     section.hidden = false;
     return;
   }

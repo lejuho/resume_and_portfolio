@@ -15,6 +15,7 @@ from .card import Card
 MODEL = "claude-sonnet-4-6"
 MODEL_GOOGLE = "gemini-2.5-flash"
 _SCHEMA_VER = 2
+_LLM_DATE_RE = re.compile(r"\b(20\d{2})[-/](0[1-9]|1[0-2])\b")
 
 
 class LLMError(Exception):
@@ -123,7 +124,78 @@ def _build_client(config: dict | None = None):
         raise LLMError("anthropic package not installed; run: uv sync --extra llm") from exc
 
 
-def _call(client, prompt: str, model: str = MODEL, response_json: bool = False) -> str:
+# Schema for Google structured output (response_schema enforces required grounding fields).
+_GROUNDED_DRAFT_SCHEMA: dict = {
+    "type": "object",
+    "required": ["source_facts", "assumptions", "title", "type", "summary", "missing_info"],
+    "properties": {
+        "source_facts": {"type": "array", "items": {"type": "string"}},
+        "assumptions": {"type": "array", "items": {"type": "string"}},
+        "title": {"type": "string"},
+        "type": {
+            "type": "string",
+            "enum": [
+                "project",
+                "talk",
+                "paper",
+                "hackathon",
+                "role",
+                "award",
+                "writing",
+                "course",
+                "community",
+            ],
+        },
+        "summary": {"type": "string"},
+        "problem": {"type": "string"},
+        "framing": {"type": "string"},
+        "approach": {"type": "string"},
+        "outcome": {"type": "string"},
+        "insight": {"type": "string"},
+        "decisions_tradeoffs": {"type": "string"},
+        "tags": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "array", "items": {"type": "string"}},
+                "skill": {"type": "array", "items": {"type": "string"}},
+                "audience": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "metrics": {"type": "array", "items": {"type": "string"}},
+        "evidence": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string"},
+                    "url": {"type": "string"},
+                },
+            },
+        },
+        "missing_info": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string"},
+                    "message": {"type": "string"},
+                },
+            },
+        },
+        "resume_bullet": {"type": "string"},
+        "portfolio_body": {"type": "string"},
+    },
+}
+
+
+def _call_with_meta(
+    client, prompt: str, model: str = MODEL, response_json: bool = False
+) -> tuple[str, dict]:
+    """Call provider; return (response_text, usage_dict).
+
+    usage_dict contains input_tokens, output_tokens, total_tokens where available.
+    Missing fields are omitted rather than set to None.
+    """
     try:
         from google import genai as _genai  # type: ignore[import]
 
@@ -137,7 +209,10 @@ def _call(client, prompt: str, model: str = MODEL, response_json: bool = False) 
             try:
                 from google.genai import types as _gtypes  # type: ignore[import]
 
-                gen_cfg = _gtypes.GenerateContentConfig(response_mime_type="application/json")
+                gen_cfg = _gtypes.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=_GROUNDED_DRAFT_SCHEMA,
+                )
             except (ImportError, Exception):
                 gen_cfg = None
         if gen_cfg is not None:
@@ -150,14 +225,39 @@ def _call(client, prompt: str, model: str = MODEL, response_json: bool = False) 
             text = None
         if not text:
             raise LLMError("google: empty response (safety filter or blocked)")
-        return text
+        usage: dict = {}
+        try:
+            um = response.usage_metadata
+            usage = {
+                "input_tokens": um.prompt_token_count,
+                "output_tokens": um.candidates_token_count,
+                "total_tokens": um.total_token_count,
+            }
+        except Exception:
+            pass
+        return text, usage
 
     response = client.messages.create(
         model=model,
         max_tokens=1024,
         messages=[{"role": "user", "content": prompt}],
     )
-    return response.content[0].text
+    usage = {}
+    try:
+        usage = {
+            "input_tokens": response.usage.input_tokens,
+            "output_tokens": response.usage.output_tokens,
+            "total_tokens": response.usage.input_tokens + response.usage.output_tokens,
+        }
+    except Exception:
+        pass
+    return response.content[0].text, usage
+
+
+def _call(client, prompt: str, model: str = MODEL, response_json: bool = False) -> str:
+    """Call provider and return response text. Thin wrapper around _call_with_meta."""
+    text, _ = _call_with_meta(client, prompt, model, response_json)
+    return text
 
 
 # ─── connection check ─────────────────────────────────────────────────────
@@ -349,42 +449,48 @@ _VALID_TYPES = frozenset(
 _VALID_EVIDENCE_TYPES = frozenset({"repo", "deck", "writeup", "demo", "article", "other"})
 
 _STUDIO_REFINE_PROMPT = """\
-You are a senior career consultant and portfolio narrative designer.
-Your job is to turn rough career notes into compelling, specific career artifacts.
-Do NOT summarize or restate the raw input — infer career value, sharpen framing,
-and produce output that a hiring manager or portfolio reader would find credible.
+Apply an evidence-grounded career-writing workflow:
+
+1. Extract source_facts — identify only items explicitly stated in the raw notes:
+   tool names, dates, URLs, metrics, named outcomes, explicitly described actions.
+   Do not invent or infer beyond what the text directly supports.
+2. Identify gaps — record interpretations needing user confirmation as assumptions.
+   Flag missing period, metrics, evidence, or unclear contribution as missing_info.
+   Always add CONTRIBUTION_UNCLEAR when team ownership is ambiguous.
+3. Draft resume content — for resume bullets, use action/context/result structure
+   from verified source_facts only. Do not invent metrics, tools, dates, or outcomes
+   absent from the notes.
+4. Draft portfolio content — structure the narrative around problem/framing/approach/
+   outcome/insight using only facts the input supports for each section.
+5. Put unsupported interpretations in assumptions or missing_info, never in facts.
 Return ONLY a JSON object — no markdown fences, no explanation.
 
 Always-present fields:
   source_facts: list of strings — factual items directly verifiable from the raw notes;
-    only what is explicitly stated (tool names, dates, URLs, metrics, named outcomes);
-    no invention
-  assumptions: list of strings — interpretations that go beyond what is stated, e.g.
-    assumed sole ownership, inferred impact when none is stated, inferred context;
-    may be empty if all claims are supported
+    only what is explicitly stated; no invention
+  assumptions: list of strings — interpretations beyond what is stated; may be empty
   title: string — concise project/role name (≤80 chars)
   type: one of project/talk/paper/hackathon/role/award/writing/course/community
-  summary: string — 1-2 sharp sentences for a portfolio card (≤200 chars)
+  summary: string — 1-2 sentences for a portfolio card (≤200 chars)
   problem: string — what situation or gap prompted this work (1-2 sentences)
   framing: string — how you scoped or reframed the problem (1-2 sentences)
   approach: string — key technical or strategic decisions made (2-3 sentences)
-  outcome: string — measurable or observable results (1-2 sentences)
+  outcome: string — observable results supported by the input (1-2 sentences)
   insight: string — what you learned or would do differently (1 sentence)
   decisions_tradeoffs: string — a notable tradeoff or constraint navigated (1-2 sentences)
   tags: object with domain (list[str]), skill (list[str]), audience (list[str])
-  metrics: list of short strings — concrete numbers/percentages present in input only
-    (e.g. "40%", "2x"); do not invent metrics absent from the notes
+  metrics: list of short strings — concrete numbers/percentages present in input only;
+    do not invent metrics absent from the notes
   evidence: list of objects with type ("repo"|"deck"|"writeup"|"demo"|"article"|"other")
     and url (string); include only URLs present in the input
-  missing_info: list of objects with code (string) and message (string) for gaps;
-    always include a CONTRIBUTION_UNCLEAR item when team ownership is ambiguous
+  missing_info: list of objects with code (string) and message (string) for gaps
 
 Intent-conditional fields:
   resume_bullet: string starting with "•" and an action verb — one line,
-    use only metrics present in source_facts; do not invent outcomes (if intent includes resume)
+    use only metrics present in source_facts (if intent includes resume)
   portfolio_body: markdown string — narrative prose using ## Problem, ## Framing,
     ## Approach, ## Outcome, ## Insight, ## Decisions & Tradeoffs sections.
-    Write in first person. Do not copy the raw notes verbatim. (if intent includes portfolio)
+    Write in first person. (if intent includes portfolio)
 
 Intent: {intent}
 Raw notes:
@@ -482,6 +588,20 @@ def studio_refine_llm(
 
     from datetime import date as _date
 
+    # Resolve period_start from raw input; do not fall back silently to today
+    dates_in_raw = _LLM_DATE_RE.findall(raw_text)
+    if dates_in_raw:
+        year_r, month_r = dates_in_raw[0]
+        period_start = f"{year_r}-{month_r}-01"
+    else:
+        period_start = str(_date.today())
+        # Guard: add MISSING_PERIOD if the LLM did not already ask for it
+        mi_codes = {m.get("code", "") for m in missing_info}
+        if "MISSING_PERIOD" not in mi_codes:
+            missing_info.append(
+                {"code": "MISSING_PERIOD", "message": "No date found — when did this happen?"}
+            )
+
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "studio-draft"
     if not slug[0].isalpha() and not slug[0].isdigit():
         slug = "studio-draft"
@@ -492,7 +612,7 @@ def studio_refine_llm(
         "id": slug,
         "title": title,
         "type": card_type,
-        "period_start": str(_date.today()),
+        "period_start": period_start,
         "status": "draft",
         "visibility": "public",
         "summary": summary,
