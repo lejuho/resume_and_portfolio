@@ -859,6 +859,24 @@ def test_mock_save_rejects_undated_draft(client, monkeypatch):
     assert "period_start" in rv_save.get_json()["error"].lower()
 
 
+# ── ISSUE-10: undated mock assumptions must not claim current-date was used ───
+
+
+def test_mock_undated_draft_does_not_assume_current_date(client, monkeypatch):
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    rv = client.post(
+        "/api/studio/refine",
+        json={"raw_text": "Undated project notes with no factual date.", "intent": "both"},
+    )
+    assert rv.status_code == 200
+    assumptions = rv.get_json()["draft"].get("assumptions", [])
+    assert not any("current date" in a.lower() for a in assumptions)
+
+
 # ── ISSUE-7 (v3): stderr must not print raw exception text ───────────────────
 
 

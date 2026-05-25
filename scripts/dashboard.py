@@ -425,7 +425,7 @@ def _mock_refine(raw_text: str, intent: str) -> dict:
     # Assumptions: interpretations beyond what is stated
     assumptions: list[str] = []
     if not dates:
-        assumptions.append("Project period assumed to be current date.")
+        assumptions.append("Project period is not provided and needs confirmation.")
     if has_team_signal:
         assumptions.append("Team activity detected; individual contribution assumed.")
 

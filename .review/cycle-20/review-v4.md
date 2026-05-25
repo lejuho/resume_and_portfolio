@@ -63,3 +63,17 @@ BLOCKED
 
 - No material feature scope expansion found in the remediation changes.
 - `.review/cycle-20/.read-counter` remains untracked and outside this review.
+
+---
+
+## RESOLVED
+
+### Issue Classification
+- ISSUE-10: APPLY
+
+### Applied
+
+RESOLVED: ISSUE-10 — undated mock assumptions no longer state current date was assumed
+- `scripts/dashboard.py` `_mock_refine()`: changed `"Project period assumed to be current date."` to `"Project period is not provided and needs confirmation."` in `assumptions` when no date present.
+- `tests/test_cycle20.py`: `test_mock_undated_draft_does_not_assume_current_date` added; asserts no assumption string contains "current date" for undated input.
+자동 check: pytest ✅ (376 passed), ruff ✅
