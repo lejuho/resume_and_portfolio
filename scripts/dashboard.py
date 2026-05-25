@@ -378,6 +378,13 @@ _TEAM_RE = re.compile(
     re.IGNORECASE,
 )
 
+_IDENTITY_RE = re.compile(
+    r"\b(?:university|college|school|born|native|hometown|undergraduate|graduate|alumni"
+    r"|nationality|birth|ethnicity)"
+    r"|(?:대학교|대학원|출신|고향|학교|생년|출생|국적)",
+    re.IGNORECASE,
+)
+
 
 def _mock_refine(raw_text: str, intent: str) -> dict:
     lines = raw_text.strip().splitlines()
@@ -715,12 +722,17 @@ def _mock_application_preview(output_type: str, cards: list, target_context: dic
     char_limit = target_context.get("character_limit")
     blind_hiring = bool(target_context.get("blind_hiring", False))
 
+    identity_flagged = False
     personal_facts: list[str] = []
     selected_cards_info = []
     for card in cards:
-        personal_facts.append(f"Activity: {card.title}")
-        if card.summary:
-            personal_facts.append(f"Summary: {card.summary[:100]}")
+        card_text = f"{card.title} {card.summary or ''}"
+        if blind_hiring and _IDENTITY_RE.search(card_text):
+            identity_flagged = True
+        else:
+            personal_facts.append(f"Activity: {card.title}")
+            if card.summary:
+                personal_facts.append(f"Summary: {card.summary[:100]}")
         for m in list(card.metrics or [])[:2]:
             personal_facts.append(f"Metric: {m}")
         for ev in list(card.evidence or [])[:2]:
@@ -763,8 +775,23 @@ def _mock_application_preview(output_type: str, cards: list, target_context: dic
                 "message": "Review output to confirm it meets blind-hiring requirements.",
             }
         )
+    if identity_flagged:
+        missing_info.append(
+            {
+                "code": "BLIND_HIRING_PERSONAL_IDENTIFIERS",
+                "message": (
+                    "Card title or summary contains education/background identifiers "
+                    "that were excluded from the blind-hiring preview."
+                ),
+            }
+        )
 
-    card_titles = ", ".join(c.title for c in cards)
+    safe_titles = [
+        c.title
+        for c in cards
+        if not (blind_hiring and _IDENTITY_RE.search(f"{c.title} {c.summary or ''}"))
+    ]
+    card_titles = ", ".join(safe_titles) if safe_titles else "selected cards"
     if output_type == "cover_letter":
         org_str = f" at {organization}" if organization else ""
         role_str = f"the {role} position" if role else "this position"

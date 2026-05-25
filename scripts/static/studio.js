@@ -151,7 +151,8 @@ function renderPreview(draft, missingInfo) {
   const sourceEl = document.getElementById("st-refine-source");
   if (sourceEl) {
     const label = draft.refine_source === "llm" ? "Source: LLM" : "Source: Mock";
-    sourceEl.textContent = label;
+    const reason = draft.fallback_reason ? ` — ${draft.fallback_reason}` : "";
+    sourceEl.textContent = label + reason;
     sourceEl.hidden = false;
   }
 
@@ -381,6 +382,22 @@ function renderAppPreview(preview) {
 
   _renderGroundingList("st-app-facts-section", "st-app-facts-list", preview.personal_facts || []);
   _renderGroundingList("st-app-context-section", "st-app-context-list", preview.target_context_used || []);
+
+  const selSection = document.getElementById("st-app-selected-section");
+  const selList = document.getElementById("st-app-selected-list");
+  if (selSection && selList) {
+    selList.innerHTML = "";
+    for (const sc of preview.selected_cards || []) {
+      const li = document.createElement("li");
+      li.textContent = `${sc.title}: ${sc.selection_reason || ""}`;
+      selList.appendChild(li);
+    }
+    selSection.hidden = (preview.selected_cards || []).length === 0;
+  }
+
+  _renderGroundingList(
+    "st-app-assumptions-section", "st-app-assumptions-list", preview.assumptions || []
+  );
 
   const interpEl = document.getElementById("st-app-interpretation");
   if (interpEl) {

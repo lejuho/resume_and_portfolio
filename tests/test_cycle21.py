@@ -709,3 +709,197 @@ def test_existing_save_endpoint_still_works(client, repo, monkeypatch):
 def test_dashboard_endpoint_still_works(client):
     rv = client.get("/dashboard")
     assert rv.status_code == 200
+
+
+# ── Review-v1 Regression Tests ────────────────────────────────────────────────
+
+_IDENTITY_CARD_MDX = """\
+---
+id: snu-project
+title: Seoul National University Graduate
+type: project
+period:
+  start: 2024-01-01
+status: live
+summary: "Born in Busan; led an analytics migration project."
+---
+"""
+
+
+@pytest.fixture()
+def identity_repo(tmp_path, monkeypatch):
+    cards = tmp_path / "cards"
+    cards.mkdir()
+    (cards / "2024-01-snu-project.mdx").write_text(_IDENTITY_CARD_MDX, encoding="utf-8")
+    monkeypatch.setattr(dash_mod, "REPO_ROOT", tmp_path)
+    return tmp_path
+
+
+@pytest.fixture()
+def identity_client(identity_repo):
+    app.config["TESTING"] = True
+    with app.test_client() as c:
+        yield c
+
+
+def _snu_answer_payload(**tc_overrides):
+    tc = {"question": "Describe a challenge you solved."}
+    tc.update(tc_overrides)
+    return {"output_type": "application_answer", "card_ids": ["snu-project"], "target_context": tc}
+
+
+# ISSUE-1: LLM/cache provenance enforcement
+
+
+def test_llm_provenance_overrides_adversarial_llm_response():
+    """personal_facts and selected_cards built server-side even when LLM returns fabrications."""
+    adversarial_json = json.dumps(
+        {
+            "personal_facts": ["Metric: increased revenue 999%", "Role: CEO"],
+            "target_context_used": ["Question: describe challenge"],
+            "selected_cards": [
+                {"id": "not-selected", "title": "Fake Card", "selection_reason": "invented"}
+            ],
+            "assumptions": [],
+            "missing_info": [],
+            "answer_draft": "I as CEO increased revenue 999%.",
+            "question_intent": "problem solving",
+            "competency_target": "",
+        }
+    )
+    fake_response = MagicMock()
+    fake_response.text = adversarial_json
+    fake_client = MagicMock()
+    fake_client.models.generate_content.return_value = fake_response
+
+    fake_card = MagicMock()
+    fake_card.id = "auth-service"
+    fake_card.title = "Auth Service"
+    fake_card.summary = "Rebuilt auth service."
+    fake_card.metrics = []
+    fake_card.evidence = []
+
+    with (
+        patch("scripts.llm._build_client", return_value=fake_client),
+        patch("scripts.llm._cache_read", return_value=None),
+        patch("scripts.llm._cache_write"),
+        patch(
+            "scripts.llm.resolve_provider_config",
+            return_value={"provider": "google", "model": "gemini-2.5-flash", "api_key": "fake"},
+        ),
+        patch("google.genai.types.GenerateContentConfig", lambda **kw: MagicMock()),
+    ):
+        result = llm_mod.application_preview_llm(
+            "application_answer", [fake_card], {"question": "describe challenge"}, no_cache=True
+        )
+
+    assert result["ok"] is True
+    preview = result["preview"]
+    assert not any("999%" in f for f in preview["personal_facts"])
+    assert not any("CEO" in f for f in preview["personal_facts"])
+    assert any("Auth Service" in f for f in preview["personal_facts"])
+    ids = [sc["id"] for sc in preview["selected_cards"]]
+    assert "not-selected" not in ids
+    assert "auth-service" in ids
+
+
+# ISSUE-2: Blind-hiring identity detection
+
+
+def test_blind_hiring_identity_card_triggers_identifier_flag(identity_client, monkeypatch):
+    """Card with identity/background content in blind-hiring mode emits identifier flag."""
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    rv = identity_client.post(
+        "/api/studio/application-preview",
+        json=_snu_answer_payload(blind_hiring=True),
+    )
+    assert rv.status_code == 200
+    codes = [m["code"] for m in rv.get_json()["preview"]["missing_info"]]
+    assert "BLIND_HIRING_PERSONAL_IDENTIFIERS" in codes
+
+
+def test_blind_hiring_identity_content_not_in_personal_facts(identity_client, monkeypatch):
+    """Identity/background text is excluded from personal_facts in blind-hiring mode."""
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    rv = identity_client.post(
+        "/api/studio/application-preview",
+        json=_snu_answer_payload(blind_hiring=True),
+    )
+    preview = rv.get_json()["preview"]
+    assert not any("Seoul National University" in f for f in preview["personal_facts"])
+    assert not any("Born in Busan" in f for f in preview["personal_facts"])
+
+
+def test_blind_hiring_identity_content_not_in_draft(identity_client, monkeypatch):
+    """Identity/background text does not appear in the answer draft under blind-hiring mode."""
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    rv = identity_client.post(
+        "/api/studio/application-preview",
+        json=_snu_answer_payload(blind_hiring=True),
+    )
+    draft = rv.get_json()["preview"]["answer_draft"]
+    assert "Seoul National University" not in draft
+    assert "Born in Busan" not in draft
+
+
+# ISSUE-3: Malformed response classification and refine-source rendering
+
+
+def test_malformed_app_response_gives_malformed_response_fallback(client, monkeypatch):
+    """Malformed LLM response for application-preview falls back with malformed_response reason."""
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+
+    def fake_app_preview(*args, **kwargs):
+        raise Exception("Malformed application_preview response: unexpected JSON structure")
+
+    monkeypatch.setattr(llm_mod, "application_preview_llm", fake_app_preview)
+    rv = _mock_client(client, _answer_payload())
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    assert preview["fallback_reason"] == "malformed_response"
+    assert preview["refine_source"] == "mock"
+
+
+def test_studio_js_exposes_fallback_reason_in_refine_source(client):
+    """studio.js renders fallback_reason alongside the source label in renderPreview."""
+    rv = client.get("/static/studio.js")
+    assert b"fallback_reason" in rv.data
+    assert b"st-refine-source" in rv.data
+
+
+# ISSUE-4: Selection rationale and assumptions render hooks
+
+
+def test_studio_html_has_app_selected_section_hooks(client):
+    rv = client.get("/studio")
+    assert b"st-app-selected-section" in rv.data
+    assert b"st-app-selected-list" in rv.data
+
+
+def test_studio_html_has_app_assumptions_section_hooks(client):
+    rv = client.get("/studio")
+    assert b"st-app-assumptions-section" in rv.data
+    assert b"st-app-assumptions-list" in rv.data
+
+
+def test_studio_js_renders_selected_cards_rationale(client):
+    rv = client.get("/static/studio.js")
+    assert b"st-app-selected-section" in rv.data
+    assert b"selected_cards" in rv.data
+    assert b"selection_reason" in rv.data
+
+
+def test_studio_js_renders_app_assumptions_block(client):
+    rv = client.get("/static/studio.js")
+    assert b"st-app-assumptions-section" in rv.data
+    assert b"assumptions" in rv.data

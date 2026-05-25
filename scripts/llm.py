@@ -269,6 +269,7 @@ _ERROR_CODES = frozenset(
         "auth_failed",
         "quota_or_rate_limit",
         "network_error",
+        "malformed_response",
         "provider_error",
     }
 )
@@ -284,6 +285,8 @@ class LLMConnectionError(LLMError):
 
 def _classify_exc(exc: BaseException) -> LLMConnectionError:
     msg = str(exc).lower()
+    if "malformed" in msg:
+        return LLMConnectionError("Response could not be parsed.", "malformed_response")
     if any(w in msg for w in ("auth", "key", "401", "403", "permission", "credential")):
         return LLMConnectionError(
             "Authentication failed. Check the configured API key.", "auth_failed"
@@ -800,17 +803,41 @@ def application_preview_llm(
             raise LLMError(f"Malformed application_preview response: {exc}\nRaw: {raw}") from exc
         _cache_write(key, raw_parsed, cache_dir)
 
-    personal_facts = [str(f) for f in (raw_parsed.get("personal_facts") or [])]
-    target_context_used = [str(t) for t in (raw_parsed.get("target_context_used") or [])]
-    selected_cards = [
-        {
-            "id": str(c.get("id", "")),
-            "title": str(c.get("title", "")),
-            "selection_reason": str(c.get("selection_reason", "")),
-        }
+    # Provenance fields: build server-side from the requested cards to prevent LLM
+    # or cache from substituting invented facts or unselected card references.
+    personal_facts: list[str] = []
+    for _c in cards:
+        personal_facts.append(f"Activity: {_c.title}")
+        if _c.summary:
+            personal_facts.append(f"Summary: {_c.summary[:100]}")
+        for _m in list(_c.metrics or [])[:2]:
+            personal_facts.append(f"Metric: {_m}")
+        for _ev in list(_c.evidence or [])[:2]:
+            if hasattr(_ev, "url"):
+                _url = _ev.url
+            elif isinstance(_ev, dict):
+                _url = _ev.get("url", "")
+            else:
+                _url = ""
+            if _url:
+                personal_facts.append(f"Evidence: {_url}")
+
+    # Use LLM selection_reason only for cards that are actually in the request.
+    _llm_reasons = {
+        str(c.get("id", "")): str(c.get("selection_reason", ""))
         for c in (raw_parsed.get("selected_cards") or [])
         if isinstance(c, dict)
+    }
+    selected_cards = [
+        {
+            "id": _c.id,
+            "title": _c.title,
+            "selection_reason": _llm_reasons.get(_c.id) or "Selected as application evidence",
+        }
+        for _c in cards
     ]
+
+    target_context_used = [str(t) for t in (raw_parsed.get("target_context_used") or [])]
     assumptions = [str(a) for a in (raw_parsed.get("assumptions") or [])]
     missing_info = [
         {"code": str(m.get("code", "")), "message": str(m.get("message", ""))}

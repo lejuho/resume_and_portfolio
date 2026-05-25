@@ -182,6 +182,13 @@ prompt contract.
 | PT-GROUND-006 | Track G portfolio rubric | Intent targets global tech/Web3 portfolio | Technical project fixture | Draft separates problem, contribution, decision, outcome/evidence, and insight. | 시나리오/체크리스트 |
 | PT-GROUND-007 | Structured response reliability | LLM is called for benchmark corpus | 12 anonymized inputs | Parsed structured response succeeds for all evaluation calls. | 경곗값분석/통계적 평가 |
 | PT-GROUND-008 | Harness efficiency comparison | Candidate prompts run on same corpus/model | Baseline, grounded one-shot, staged candidate | Token/latency/quality table is captured; selected candidate satisfies quality gate with lowest usable-draft token cost. | 비교평가 |
+## Implemented Application Writing Test Cases (Cycle 21)
+
+These cases were planned for the application-writing harness. Automated equivalents are
+implemented in `tests/test_cycle21.py` as of Cycle 21.
+
+| 고유번호 | 테스트 대상 | 테스트 조건 | 테스트 데이터 | 예상 결과 | 기법 |
+|---|---|---|---|---|---|
 | PT-APP-001 | Cover-letter source separation | Cover-letter output is generated | Approved cards plus supplied organization/JD context | Personal claims cite card facts only; organization/fit language uses supplied target context only. | 결정테이블/오류추정 |
 | PT-APP-002 | Question interpretation | User supplies an application question | Collaboration, problem-solving, motivation, or ethics question | Preview exposes interpreted competency/question intent before answer draft. | 동등분할 |
 | PT-APP-003 | Episode selection | Several cards could answer one question | Cards with different evidence strength | Preview identifies selected card(s) and a reason tied to the question. | 시나리오 |
@@ -198,7 +205,7 @@ prompt contract.
 | Studio capture, preview, save | `requirements-dashboard.md` section 5 | `TC-STUDIO-*` | `docs/acceptance-studio.md` |
 | Optional LLM and provider configuration | `requirements-dashboard.md` section 8 and D-006/D-007 | `TC-LLM-*`, `TC-AI-*` | `docs/acceptance-studio.md` |
 | Grounded intent-specific drafting | `requirements-dashboard.md` sections 8.4-8.5, 8.7 and D-008 | `PT-GROUND-*` (planned) | `docs/research/llm-harness-evaluation.md` |
-| Application writing from canonical memory | `requirements-dashboard.md` section 8.6 and D-009 | `PT-APP-*` (planned) | Future application-writing acceptance evidence |
+| Application writing from canonical memory | `requirements-dashboard.md` section 8.6 and D-009 | `PT-APP-*` | `docs/acceptance-studio.md` Application Writing Acceptance (Cycle 21) |
 
 ## Manual Acceptance Test Cases
 

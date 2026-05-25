@@ -102,3 +102,61 @@ BLOCKED
 
 No unintended implementation scope expansion identified. Untracked `.read-counter` files were
 present and excluded from review changes.
+
+---
+
+## RESOLVED
+
+### Issue Classification
+- ISSUE-1: APPLY
+- ISSUE-2: APPLY
+- ISSUE-3: APPLY
+- ISSUE-4: APPLY
+- ISSUE-5: APPLY
+
+### Applied
+
+RESOLVED: ISSUE-1 — LLM provenance overrides adversarial response
+- `scripts/llm.py`: `application_preview_llm()` builds `personal_facts` and `selected_cards`
+  server-side from the `cards` parameter after the LLM call; LLM/cache values for those
+  fields are discarded. `selection_reason` is taken from the LLM only for card IDs that are
+  in the requested set.
+- `tests/test_cycle21.py`: `test_llm_provenance_overrides_adversarial_llm_response` passes a
+  fake client returning fabricated facts and an unselected card ID; asserts they do not appear
+  in the returned preview.
+- 자동 체크: pytest 436 ✅ / ruff check ✅ / ruff format ✅
+
+RESOLVED: ISSUE-2 — Blind-hiring identity/background redaction
+- `scripts/dashboard.py`: Added `_IDENTITY_RE` covering English and Korean
+  education/background keywords. `_mock_application_preview()` filters Activity/Summary facts
+  for flagged cards in blind-hiring mode and emits `BLIND_HIRING_PERSONAL_IDENTIFIERS` to
+  `missing_info`. `safe_titles` list is used for draft text.
+- `tests/test_cycle21.py`: Three fixture-based tests verify flag emission and content
+  exclusion from `personal_facts` and `answer_draft`.
+- 자동 체크: pytest 436 ✅
+
+RESOLVED: ISSUE-3 — Malformed response classification and refine-source rendering
+- `scripts/llm.py`: Added `"malformed_response"` to `_ERROR_CODES`; added
+  `if "malformed" in msg:` check at top of `_classify_exc()`.
+- `scripts/static/studio.js`: `renderPreview()` appends ` — {fallback_reason}` to the source
+  label displayed in `st-refine-source`.
+- `tests/test_cycle21.py`: `test_malformed_app_response_gives_malformed_response_fallback`
+  and `test_studio_js_exposes_fallback_reason_in_refine_source` added.
+- 자동 체크: pytest 436 ✅
+
+RESOLVED: ISSUE-4 — Selection rationale and assumptions render hooks
+- `scripts/static/studio.js`: `renderAppPreview()` renders `selected_cards` and `assumptions`
+  blocks using the new HTML element IDs.
+- `scripts/templates/studio.html`: Added `st-app-selected-section`/`st-app-selected-list` and
+  `st-app-assumptions-section`/`st-app-assumptions-list` elements.
+- `tests/test_cycle21.py`: Four tests verify the HTML and JS render hooks.
+- 자동 체크: pytest 436 ✅
+
+RESOLVED: ISSUE-5 — Specification and acceptance updates
+- `requirements-dashboard.md`: D-009 extended with "Status (Cycle 21 implemented)" paragraph
+  describing the endpoint, provenance boundary, blind-hiring, and fallback reasons.
+- `docs/acceptance-studio.md`: "Grounded Harness Acceptance" promoted to implemented section;
+  "Application Writing Acceptance (Cycle 21 Implemented)" section added with 12 manual rows.
+- `docs/test-cases.md`: PT-APP-* rows split into a new "Implemented Application Writing Test
+  Cases (Cycle 21)" section; requirement trace row updated to reference the acceptance doc.
+- 자동 체크: pytest 436 ✅

@@ -67,17 +67,38 @@ client information into a live provider unless disclosure is acceptable.
 | Evidence | Metric/link absence becomes a question, not an invention. | Demo/repo/visual absence becomes a question, not an invention. |  |
 | Artifact result | Resume output is reviewable. | PPTX narrative and layout are reviewable. |  |
 
-## Future Grounded-Harness Acceptance
-
-These rows apply after the planned grounded drafting implementation.
+## Grounded Harness Acceptance (Cycle 20 Implemented)
 
 | Criterion | Evidence Required | Result / Notes |
 |---|---|---|
-| Source facts visible before save | Preview exposes supported facts separately from prose. |  |
-| Assumptions reviewable | Unsupported interpretations are presented as confirmation items. |  |
-| No invented metrics | A metric-free fixture produces no numeric outcome claim. |  |
-| Intent consistency | Resume and portfolio drafts preserve identical underlying facts. |  |
-| Measured efficiency | Harness evaluation records token and latency results for chosen candidate. |  |
+| Source facts visible before save | Preview exposes supported facts separately from prose. | Implemented: `source_facts` and `assumptions` rendered before Save button. |
+| Assumptions reviewable | Unsupported interpretations are presented as confirmation items. | Implemented. |
+| No invented metrics | A metric-free fixture produces no numeric outcome claim. | Enforced by grounded prompt and mock path. |
+| Intent consistency | Resume and portfolio drafts preserve identical underlying facts. | LLM and mock paths both extract from raw text only. |
+| Measured efficiency | Harness evaluation records token and latency results for chosen candidate. | `scripts/evaluate_studio_grounding.py --live` captures this. |
+
+## Application Writing Acceptance (Cycle 21 Implemented)
+
+Start the local application:
+
+```bash
+uv run pcli dashboard --port 5097
+```
+
+| # | Scenario | Action | Expected Result | Result / Notes |
+|---:|---|---|---|---|
+| 1 | Panel visibility | Open `/studio`. | Application Writing panel is visibly separate from raw Career Memory capture. |  |
+| 2 | Live-card selector | Open the panel without any live cards. | "No live cards" placeholder is shown; generate is blocked. |  |
+| 3 | Cover-letter preview | Select one live card; set organization and role; click Generate. | Preview shows `personal_facts` from card only; `target_context_used` shows org/role. |  |
+| 4 | Answer preview | Select a card; enter a question and character limit; click Generate. | `question_intent` is shown; `character_count` and `within_limit` are correct. |  |
+| 5 | Source separation | Add organization to an existing answer request. | `personal_facts` is unchanged; org appears only in `target_context_used`. |  |
+| 6 | Blind-hiring review | Select a card whose title or summary contains education/background text; enable Blind Hiring. | `BLIND_HIRING_PERSONAL_IDENTIFIERS` appears in missing info; flagged content is not in the draft. |  |
+| 7 | Selection rationale | Generate any preview. | `selected_cards` section shows each card and its selection_reason. |  |
+| 8 | Assumptions visibility | Generate a preview that produces an assumption (e.g. char-limit truncation). | Assumptions block is visible in the panel. |  |
+| 9 | Fallback reason (mock) | Run without a configured provider. | `Source: Mock — not_configured` is shown in the application panel. |  |
+| 10 | No card created | Generate a cover letter or answer preview. | Card count in Dashboard does not increase. |  |
+| 11 | Copy action | Click Copy to clipboard after generating. | Draft text is copied; button briefly shows "Copied!". |  |
+| 12 | Refine fallback reason | Run without a provider; generate a Career Memory refine. | `Source: Mock — not_configured` appears below the refine preview. |  |
 
 ## Sign-Off
 

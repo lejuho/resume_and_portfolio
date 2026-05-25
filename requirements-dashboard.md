@@ -606,3 +606,17 @@ application-writing harness capability for 자기소개서 and supplied-question
 It must treat cards as the only source for personal factual claims and treat user-supplied
 job/organization/question context as a separate source for tailoring. Resume and portfolio
 generation remain separate transformations rather than being reused as generic long-form prose.
+
+**Status (Cycle 21 implemented):** `POST /api/studio/application-preview` is live.
+
+- Accepts `output_type` (cover_letter | application_answer), `card_ids` (live cards only),
+  and `target_context` (organization, role, job_description, question, competency,
+  character_limit, blind_hiring).
+- Returns `personal_facts` built from selected cards only; `target_context_used` from
+  supplied context only. The LLM path overrides provenance fields server-side to prevent
+  invented or unselected-card claims.
+- Blind-hiring mode detects and excludes education/background identifiers and emits
+  `BLIND_HIRING_PERSONAL_IDENTIFIERS` if any were detected.
+- Safe fallback reasons: `not_configured`, `quota_or_rate_limit`, `auth_failed`,
+  `network_error`, `malformed_response`, `provider_error`.
+- Application previews are not persisted as canonical cards.
