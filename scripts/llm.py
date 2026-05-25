@@ -837,7 +837,21 @@ def application_preview_llm(
         for _c in cards
     ]
 
-    target_context_used = [str(t) for t in (raw_parsed.get("target_context_used") or [])]
+    # Build target_context_used server-side from submitted context to prevent LLM fabrication.
+    _tcu: list[str] = []
+    if target_context.get("organization"):
+        _tcu.append(f"Organization: {target_context['organization']}")
+    if target_context.get("role"):
+        _tcu.append(f"Role: {target_context['role']}")
+    if target_context.get("job_description"):
+        _tcu.append("Job description provided")
+    if target_context.get("question"):
+        _tcu.append(f"Question: {target_context['question']}")
+    if target_context.get("competency"):
+        _tcu.append(f"Competency: {target_context['competency']}")
+    if target_context.get("blind_hiring"):
+        _tcu.append("Blind-hiring restrictions applied")
+    target_context_used = _tcu
     assumptions = [str(a) for a in (raw_parsed.get("assumptions") or [])]
     missing_info = [
         {"code": str(m.get("code", "")), "message": str(m.get("message", ""))}

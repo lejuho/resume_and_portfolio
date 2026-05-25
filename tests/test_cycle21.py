@@ -801,6 +801,8 @@ def test_llm_provenance_overrides_adversarial_llm_response():
     ids = [sc["id"] for sc in preview["selected_cards"]]
     assert "not-selected" not in ids
     assert "auth-service" in ids
+    # target_context_used must be server-side built; adversarial org must not appear
+    assert not any("Fabricated Corp" in t for t in preview["target_context_used"])
 
 
 # ISSUE-2: Blind-hiring identity detection
@@ -903,3 +905,94 @@ def test_studio_js_renders_app_assumptions_block(client):
     rv = client.get("/static/studio.js")
     assert b"st-app-assumptions-section" in rv.data
     assert b"assumptions" in rv.data
+
+
+# ISSUE-1 (route-level): grounding guard on answer_draft
+
+
+def test_adversarial_llm_answer_triggers_grounding_fallback(client, monkeypatch):
+    """Route grounding guard falls back when LLM answer contains invented metrics or roles."""
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+
+    def fake_llm(output_type, cards, target_context, **kwargs):
+        return {
+            "ok": True,
+            "preview": {
+                "personal_facts": ["Metric: increased revenue 999%"],
+                "target_context_used": ["Organization: Fabricated Corp"],
+                "selected_cards": [
+                    {"id": "auth-service", "title": "Auth Service", "selection_reason": "r"}
+                ],
+                "assumptions": [],
+                "missing_info": [],
+                "answer_draft": "As CEO, I increased revenue 999% at Fabricated Corp.",
+                "question_intent": "problem solving",
+                "competency_target": "",
+                "character_count": 51,
+                "character_limit": None,
+                "within_limit": None,
+                "refine_source": "llm",
+                "fallback_reason": None,
+            },
+        }
+
+    monkeypatch.setattr(llm_mod, "application_preview_llm", fake_llm)
+    rv = _mock_client(client, _answer_payload())
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    assert preview["refine_source"] == "mock"
+    assert preview["fallback_reason"] == "malformed_response"
+    assert "999%" not in preview["answer_draft"]
+    assert "CEO" not in preview["answer_draft"]
+    assert not any("Fabricated Corp" in t for t in preview["target_context_used"])
+
+
+# ISSUE-2 (route-level): blind-hiring shared helper on LLM path
+
+
+def test_llm_path_blind_hiring_identity_excluded_by_route(identity_client, monkeypatch):
+    """Route applies blind-hiring redaction via shared helper on LLM path too."""
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+
+    def fake_llm(output_type, cards, target_context, **kwargs):
+        return {
+            "ok": True,
+            "preview": {
+                "personal_facts": [
+                    "Activity: Seoul National University Graduate",
+                    "Summary: Born in Busan; led an analytics migration project.",
+                ],
+                "target_context_used": ["Question: describe challenge"],
+                "selected_cards": [
+                    {
+                        "id": "snu-project",
+                        "title": "Seoul National University Graduate",
+                        "selection_reason": "relevant",
+                    }
+                ],
+                "assumptions": [],
+                "missing_info": [],
+                "answer_draft": "I developed analytics capabilities.",
+                "question_intent": "assessing problem solving",
+                "competency_target": "",
+                "character_count": 35,
+                "character_limit": None,
+                "within_limit": None,
+                "refine_source": "llm",
+                "fallback_reason": None,
+            },
+        }
+
+    monkeypatch.setattr(llm_mod, "application_preview_llm", fake_llm)
+    rv = identity_client.post(
+        "/api/studio/application-preview",
+        json=_snu_answer_payload(blind_hiring=True),
+    )
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    assert not any("Seoul National University" in f for f in preview["personal_facts"])
+    assert not any("Born in Busan" in f for f in preview["personal_facts"])
+    codes = [m["code"] for m in preview["missing_info"]]
+    assert "BLIND_HIRING_PERSONAL_IDENTIFIERS" in codes

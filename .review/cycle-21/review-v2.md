@@ -79,3 +79,39 @@ previously reported safety boundaries across the live LLM path.
 ## Changes Outside Plan
 
 No scope creep identified. Untracked `.read-counter` files remain excluded from review changes.
+
+---
+
+## RESOLVED
+
+### Issue Classification
+- ISSUE-1: APPLY
+- ISSUE-2: APPLY
+
+### Applied
+
+RESOLVED: ISSUE-1 — Provenance enforcement extended to answer_draft and target_context_used
+- `scripts/llm.py`: `application_preview_llm()` now builds `target_context_used`
+  server-side from the submitted `target_context` dict, discarding the LLM-provided value.
+- `scripts/dashboard.py`: Added `_has_ungrounded_claims()` helper; the route's `else` branch
+  (LLM success path) runs the guard after overriding provenance fields. If the answer_draft
+  contains numeric or C-suite role claims not present in personal_facts or target_context,
+  fallback_reason is set to `malformed_response` and mock output is returned instead.
+- `tests/test_cycle21.py`:
+  - Existing `test_llm_provenance_overrides_adversarial_llm_response` extended to assert
+    `target_context_used` cannot preserve `"Fabricated Corp"`.
+  - New `test_adversarial_llm_answer_triggers_grounding_fallback` verifies route fallback
+    when answer_draft contains invented `CEO`, `999%`, and `Fabricated Corp`.
+- 자동 체크: pytest 438 ✅ / ruff check ✅ / ruff format ✅
+
+RESOLVED: ISSUE-2 — Blind-hiring redaction shared helper covers mock and LLM paths
+- `scripts/dashboard.py`: Added `_build_card_facts(cards, blind_hiring)` and
+  `_build_target_context_used(tc)` shared helpers. `_mock_application_preview()` now calls
+  these helpers instead of duplicating the logic. The LLM success path in
+  `api_studio_application_preview()` calls `_build_card_facts` after the LLM call and
+  overwrites `personal_facts` in the preview, then injects
+  `BLIND_HIKING_PERSONAL_IDENTIFIERS` missing_info if any card was flagged.
+- `tests/test_cycle21.py`: New `test_llm_path_blind_hiring_identity_excluded_by_route`
+  verifies that even when the fake LLM returns unredacted identity content, the route
+  overrides personal_facts and emits the identifier flag.
+- 자동 체크: pytest 438 ✅

@@ -386,6 +386,65 @@ _IDENTITY_RE = re.compile(
 )
 
 
+def _build_card_facts(cards: list, blind_hiring: bool = False) -> tuple[list[str], bool]:
+    """Build personal_facts from cards; apply blind-hiring redaction when requested.
+
+    Returns (personal_facts, identity_flagged).
+    """
+    personal_facts: list[str] = []
+    identity_flagged = False
+    for c in cards:
+        flagged = blind_hiring and bool(_IDENTITY_RE.search(f"{c.title} {c.summary or ''}"))
+        if flagged:
+            identity_flagged = True
+        else:
+            personal_facts.append(f"Activity: {c.title}")
+            if c.summary:
+                personal_facts.append(f"Summary: {c.summary[:100]}")
+        for m in list(c.metrics or [])[:2]:
+            personal_facts.append(f"Metric: {m}")
+        for ev in list(c.evidence or [])[:2]:
+            if hasattr(ev, "url"):
+                url = ev.url
+            elif isinstance(ev, dict):
+                url = ev.get("url", "")
+            else:
+                url = ""
+            if url:
+                personal_facts.append(f"Evidence: {url}")
+    return personal_facts, identity_flagged
+
+
+def _build_target_context_used(tc: dict) -> list[str]:
+    """Build target_context_used list from submitted target context dict."""
+    result: list[str] = []
+    if tc.get("organization"):
+        result.append(f"Organization: {tc['organization']}")
+    if tc.get("role"):
+        result.append(f"Role: {tc['role']}")
+    if tc.get("job_description"):
+        result.append("Job description provided")
+    if tc.get("question"):
+        result.append(f"Question: {tc['question']}")
+    if tc.get("competency"):
+        result.append(f"Competency: {tc['competency']}")
+    if tc.get("blind_hiring"):
+        result.append("Blind-hiring restrictions applied")
+    return result
+
+
+def _has_ungrounded_claims(draft: str, personal_facts: list[str], tc: dict) -> bool:
+    """Return True if draft contains numeric or role claims absent from facts and target context."""
+    authorized = " ".join(personal_facts) + " " + " ".join(str(v) for v in tc.values())
+    auth_nums = set(re.findall(r"\b\d+(?:\.\d+)?\b", authorized))
+    draft_nums = set(re.findall(r"\b\d+(?:\.\d+)?\b", draft))
+    if draft_nums - auth_nums:
+        return True
+    auth_roles = set(re.findall(r"\b(?:CEO|CFO|CTO|COO|Chairman)\b", authorized, re.IGNORECASE))
+    draft_roles = set(re.findall(r"\b(?:CEO|CFO|CTO|COO|Chairman)\b", draft, re.IGNORECASE))
+    return bool(draft_roles - auth_roles)
+
+
 def _mock_refine(raw_text: str, intent: str) -> dict:
     lines = raw_text.strip().splitlines()
     title = lines[0].strip() if lines else "Untitled"
@@ -716,50 +775,21 @@ def _load_live_cards(card_ids: list, repo_root: Path) -> tuple[list, tuple | Non
 def _mock_application_preview(output_type: str, cards: list, target_context: dict) -> dict:
     organization = target_context.get("organization", "")
     role = target_context.get("role", "")
-    job_description = target_context.get("job_description", "")
     question = target_context.get("question", "")
     competency = target_context.get("competency", "")
     char_limit = target_context.get("character_limit")
     blind_hiring = bool(target_context.get("blind_hiring", False))
 
-    identity_flagged = False
-    personal_facts: list[str] = []
-    selected_cards_info = []
-    for card in cards:
-        card_text = f"{card.title} {card.summary or ''}"
-        if blind_hiring and _IDENTITY_RE.search(card_text):
-            identity_flagged = True
-        else:
-            personal_facts.append(f"Activity: {card.title}")
-            if card.summary:
-                personal_facts.append(f"Summary: {card.summary[:100]}")
-        for m in list(card.metrics or [])[:2]:
-            personal_facts.append(f"Metric: {m}")
-        for ev in list(card.evidence or [])[:2]:
-            if hasattr(ev, "url"):
-                url = ev.url
-            elif isinstance(ev, dict):
-                url = ev.get("url", "")
-            else:
-                url = ""
-            if url:
-                personal_facts.append(f"Evidence: {url}")
-        reason = f"Demonstrates {card.summary[:60] if card.summary else card.title}"
-        selected_cards_info.append({"id": card.id, "title": card.title, "selection_reason": reason})
-
-    target_context_used: list[str] = []
-    if organization:
-        target_context_used.append(f"Organization: {organization}")
-    if role:
-        target_context_used.append(f"Role: {role}")
-    if job_description:
-        target_context_used.append("Job description provided")
-    if question:
-        target_context_used.append(f"Question: {question}")
-    if competency:
-        target_context_used.append(f"Competency: {competency}")
-    if blind_hiring:
-        target_context_used.append("Blind-hiring restrictions applied")
+    personal_facts, identity_flagged = _build_card_facts(cards, blind_hiring)
+    target_context_used = _build_target_context_used(target_context)
+    selected_cards_info = [
+        {
+            "id": c.id,
+            "title": c.title,
+            "selection_reason": f"Demonstrates {c.summary[:60] if c.summary else c.title}",
+        }
+        for c in cards
+    ]
 
     question_intent = (
         f"Assessing: {question[:100]}" if output_type == "application_answer" and question else ""
@@ -787,9 +817,7 @@ def _mock_application_preview(output_type: str, cards: list, target_context: dic
         )
 
     safe_titles = [
-        c.title
-        for c in cards
-        if not (blind_hiring and _IDENTITY_RE.search(f"{c.title} {c.summary or ''}"))
+        f.replace("Activity: ", "") for f in personal_facts if f.startswith("Activity: ")
     ]
     card_titles = ", ".join(safe_titles) if safe_titles else "selected cards"
     if output_type == "cover_letter":
@@ -878,7 +906,7 @@ def api_studio_application_preview():
         try:
             from scripts.llm import application_preview_llm
 
-            return jsonify(application_preview_llm(output_type, cards, target_context))
+            llm_result = application_preview_llm(output_type, cards, target_context)
         except Exception as exc:
             try:
                 from scripts.llm import _classify_exc
@@ -886,6 +914,28 @@ def api_studio_application_preview():
                 fallback_reason = _classify_exc(exc).error_code
             except Exception:
                 fallback_reason = "provider_error"
+        else:
+            # Override provenance fields server-side; apply blind-hiring and grounding guard.
+            _blind = bool(target_context.get("blind_hiring", False))
+            _facts, _id_flagged = _build_card_facts(cards, _blind)
+            _llm_p = llm_result["preview"]
+            _llm_p["personal_facts"] = _facts
+            _llm_p["target_context_used"] = _build_target_context_used(target_context)
+            if _id_flagged:
+                _codes = {m.get("code") for m in _llm_p.get("missing_info", [])}
+                if "BLIND_HIRING_PERSONAL_IDENTIFIERS" not in _codes:
+                    _llm_p.setdefault("missing_info", []).append(
+                        {
+                            "code": "BLIND_HIRING_PERSONAL_IDENTIFIERS",
+                            "message": (
+                                "Card title or summary contains education/background "
+                                "identifiers that were excluded from the blind-hiring preview."
+                            ),
+                        }
+                    )
+            if not _has_ungrounded_claims(_llm_p.get("answer_draft", ""), _facts, target_context):
+                return jsonify(llm_result)
+            fallback_reason = "malformed_response"
     else:
         fallback_reason = "not_configured"
 
