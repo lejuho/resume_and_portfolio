@@ -599,16 +599,25 @@ def api_studio_refine():
     except Exception:
         can_try_llm = False
 
+    refine_fallback_reason: str | None = None
     if can_try_llm:
         try:
             from scripts.llm import studio_refine_llm
 
             return jsonify(studio_refine_llm(raw_text, intent))
-        except Exception:
-            pass  # fall through to mock on any LLM failure
+        except Exception as exc:
+            try:
+                from scripts.llm import _classify_exc
+
+                refine_fallback_reason = _classify_exc(exc).error_code
+            except Exception:
+                refine_fallback_reason = "provider_error"
+    else:
+        refine_fallback_reason = "not_configured"
 
     result = _mock_refine(raw_text, intent)
     result["draft"]["refine_source"] = "mock"
+    result["draft"]["fallback_reason"] = refine_fallback_reason
     return jsonify(result)
 
 
@@ -677,6 +686,186 @@ def api_studio_save():
     _write_card_atomic(target, post)
 
     return jsonify({"ok": True, "id": card_id, "path": str(target.relative_to(REPO_ROOT))}), 201
+
+
+def _load_live_cards(card_ids: list, repo_root: Path) -> tuple[list, tuple | None]:
+    """Load validated live cards. Returns (cards, None) or ([], (error_dict, status_code))."""
+    from scripts.card import CardRepo
+
+    repo = CardRepo(repo_root)
+    all_cards = {c.id: c for c in repo.cards}
+    loaded = []
+    for cid in card_ids:
+        if cid not in all_cards:
+            return [], ({"ok": False, "error": f"card {cid!r} not found"}, 404)
+        card = all_cards[cid]
+        if card.status != "live":
+            msg = f"card {cid!r} is not live (status: {card.status})"
+            return [], ({"ok": False, "error": msg}, 422)
+        loaded.append(card)
+    return loaded, None
+
+
+def _mock_application_preview(output_type: str, cards: list, target_context: dict) -> dict:
+    organization = target_context.get("organization", "")
+    role = target_context.get("role", "")
+    job_description = target_context.get("job_description", "")
+    question = target_context.get("question", "")
+    competency = target_context.get("competency", "")
+    char_limit = target_context.get("character_limit")
+    blind_hiring = bool(target_context.get("blind_hiring", False))
+
+    personal_facts: list[str] = []
+    selected_cards_info = []
+    for card in cards:
+        personal_facts.append(f"Activity: {card.title}")
+        if card.summary:
+            personal_facts.append(f"Summary: {card.summary[:100]}")
+        for m in list(card.metrics or [])[:2]:
+            personal_facts.append(f"Metric: {m}")
+        for ev in list(card.evidence or [])[:2]:
+            if hasattr(ev, "url"):
+                url = ev.url
+            elif isinstance(ev, dict):
+                url = ev.get("url", "")
+            else:
+                url = ""
+            if url:
+                personal_facts.append(f"Evidence: {url}")
+        reason = f"Demonstrates {card.summary[:60] if card.summary else card.title}"
+        selected_cards_info.append({"id": card.id, "title": card.title, "selection_reason": reason})
+
+    target_context_used: list[str] = []
+    if organization:
+        target_context_used.append(f"Organization: {organization}")
+    if role:
+        target_context_used.append(f"Role: {role}")
+    if job_description:
+        target_context_used.append("Job description provided")
+    if question:
+        target_context_used.append(f"Question: {question}")
+    if competency:
+        target_context_used.append(f"Competency: {competency}")
+    if blind_hiring:
+        target_context_used.append("Blind-hiring restrictions applied")
+
+    question_intent = (
+        f"Assessing: {question[:100]}" if output_type == "application_answer" and question else ""
+    )
+    competency_target = competency
+
+    missing_info: list[dict] = []
+    assumptions: list[str] = []
+    if blind_hiring:
+        missing_info.append(
+            {
+                "code": "BLIND_HIRING_REVIEW",
+                "message": "Review output to confirm it meets blind-hiring requirements.",
+            }
+        )
+
+    card_titles = ", ".join(c.title for c in cards)
+    if output_type == "cover_letter":
+        org_str = f" at {organization}" if organization else ""
+        role_str = f"the {role} position" if role else "this position"
+        draft = (
+            f"I am writing to express my interest in {role_str}{org_str}. "
+            f"My experience with {card_titles} demonstrates capabilities relevant to this role."
+        )
+    else:
+        q_intro = f'Regarding "{question[:80]}": ' if question else ""
+        comp_str = f" This reflects {competency}." if competency else ""
+        draft = (
+            f"{q_intro}Through my work on {card_titles}, "
+            f"I developed the relevant capabilities.{comp_str}"
+        )
+
+    if char_limit and len(draft) > char_limit:
+        draft = draft[:char_limit]
+        assumptions.append("Draft truncated to fit the character limit.")
+
+    char_count = len(draft)
+    within_limit = (char_count <= char_limit) if char_limit else None
+
+    return {
+        "output_type": output_type,
+        "question_intent": question_intent,
+        "competency_target": competency_target,
+        "selected_cards": selected_cards_info,
+        "personal_facts": personal_facts,
+        "target_context_used": target_context_used,
+        "assumptions": assumptions,
+        "missing_info": missing_info,
+        "answer_draft": draft,
+        "character_count": char_count,
+        "character_limit": char_limit,
+        "within_limit": within_limit,
+    }
+
+
+@app.route("/api/studio/application-preview", methods=["POST"])
+def api_studio_application_preview():
+    data = request.get_json(force=True) or {}
+    output_type = data.get("output_type", "")
+    card_ids = data.get("card_ids") or []
+    target_context: dict = data.get("target_context") or {}
+
+    _valid_types = ("cover_letter", "application_answer")
+    if output_type not in _valid_types:
+        _msg = "output_type must be cover_letter or application_answer"
+        return jsonify({"ok": False, "error": _msg}), 400
+    if not isinstance(card_ids, list) or not card_ids:
+        return jsonify({"ok": False, "error": "card_ids must be a non-empty list"}), 400
+
+    if output_type == "cover_letter":
+        _ctx_fields = ("organization", "role", "job_description")
+        if not any(target_context.get(f) for f in _ctx_fields):
+            _msg = "cover_letter requires organization, role, or job_description"
+            return jsonify({"ok": False, "error": _msg}), 400
+    if output_type == "application_answer":
+        if not target_context.get("question"):
+            return jsonify({"ok": False, "error": "application_answer requires question"}), 400
+
+    char_limit = target_context.get("character_limit")
+    if char_limit is not None:
+        if not isinstance(char_limit, int) or not (1 <= char_limit <= 5000):
+            _msg = "character_limit must be an integer from 1 to 5000"
+            return jsonify({"ok": False, "error": _msg}), 400
+
+    cards, err = _load_live_cards(card_ids, REPO_ROOT)
+    if err is not None:
+        return jsonify(err[0]), err[1]
+
+    fallback_reason: str | None = None
+    try:
+        from scripts.llm import _SUPPORTED_PROVIDERS, is_api_key_configured, resolve_provider_config
+
+        cfg = resolve_provider_config()
+        can_try_llm = (
+            is_api_key_configured(cfg["api_key"]) and cfg["provider"] in _SUPPORTED_PROVIDERS
+        )
+    except Exception:
+        can_try_llm = False
+
+    if can_try_llm:
+        try:
+            from scripts.llm import application_preview_llm
+
+            return jsonify(application_preview_llm(output_type, cards, target_context))
+        except Exception as exc:
+            try:
+                from scripts.llm import _classify_exc
+
+                fallback_reason = _classify_exc(exc).error_code
+            except Exception:
+                fallback_reason = "provider_error"
+    else:
+        fallback_reason = "not_configured"
+
+    preview = _mock_application_preview(output_type, cards, target_context)
+    preview["refine_source"] = "mock"
+    preview["fallback_reason"] = fallback_reason
+    return jsonify({"ok": True, "preview": preview})
 
 
 def run_server(host: str = "127.0.0.1", port: int = 5000, debug: bool = False) -> None:

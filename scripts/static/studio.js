@@ -15,6 +15,7 @@ document.addEventListener("DOMContentLoaded", () => {
     _chipTimer = setTimeout(detectChips, 200);
   });
   _fetchAiStatus();
+  loadAppCards();
 });
 
 async function _fetchAiStatus() {
@@ -288,4 +289,165 @@ function _esc(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+// ── Application Writing ──────────────────────────────────────────────────────
+
+let _appCards = [];
+let _appDraftText = "";
+
+async function loadAppCards() {
+  const container = document.getElementById("st-app-card-selector");
+  if (!container) return;
+  try {
+    const resp = await fetch("/api/cards");
+    const data = await resp.json();
+    const live = (data.cards || []).filter(c => c.status === "live");
+    container.innerHTML = "";
+    if (!live.length) {
+      container.innerHTML = '<span class="placeholder">No live cards found. Mark cards as Live in Dashboard first.</span>';
+      _appCards = [];
+      return;
+    }
+    _appCards = live;
+    for (const card of live) {
+      const div = document.createElement("div");
+      div.className = "card-check-item";
+      div.innerHTML =
+        `<input type="checkbox" id="app-card-${_esc(card.id)}" value="${_esc(card.id)}" />` +
+        `<label for="app-card-${_esc(card.id)}">${_esc(card.title)}<span class="card-status">${_esc(card.id)}</span></label>`;
+      container.appendChild(div);
+    }
+  } catch (_) {
+    if (container) container.innerHTML = '<span class="placeholder">Could not load cards.</span>';
+  }
+}
+
+function _selectedAppCardIds() {
+  const checks = document.querySelectorAll('#st-app-card-selector input[type="checkbox"]:checked');
+  return Array.from(checks).map(c => c.value);
+}
+
+function _selectedAppOutputType() {
+  const el = document.querySelector('input[name="app_output_type"]:checked');
+  return el ? el.value : "application_answer";
+}
+
+async function generateAppPreview() {
+  const card_ids = _selectedAppCardIds();
+  const output_type = _selectedAppOutputType();
+  const organization = (document.getElementById("st-app-organization") || {}).value || "";
+  const role = (document.getElementById("st-app-role") || {}).value || "";
+  const question = (document.getElementById("st-app-question") || {}).value || "";
+  const competency = (document.getElementById("st-app-competency") || {}).value || "";
+  const job_description = (document.getElementById("st-app-jd") || {}).value || "";
+  const charLimitRaw = (document.getElementById("st-app-charlimit") || {}).value;
+  const blind_hiring = document.getElementById("st-app-blind")
+    ? document.getElementById("st-app-blind").checked
+    : false;
+
+  const target_context = { organization, role, question, competency, job_description, blind_hiring };
+  if (charLimitRaw) {
+    const parsed = parseInt(charLimitRaw, 10);
+    if (!isNaN(parsed)) target_context.character_limit = parsed;
+  }
+
+  const btn = document.getElementById("st-app-preview-btn");
+  btn.disabled = true;
+  btn.textContent = "Generating…";
+
+  try {
+    const resp = await fetch("/api/studio/application-preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ output_type, card_ids, target_context }),
+    });
+    const data = await resp.json();
+    if (!data.ok) {
+      _showAppError(data.error || "Preview failed.");
+      return;
+    }
+    renderAppPreview(data.preview);
+  } catch (e) {
+    _showAppError("Network error: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Generate application preview";
+  }
+}
+
+function renderAppPreview(preview) {
+  document.getElementById("st-app-result").hidden = false;
+
+  _renderGroundingList("st-app-facts-section", "st-app-facts-list", preview.personal_facts || []);
+  _renderGroundingList("st-app-context-section", "st-app-context-list", preview.target_context_used || []);
+
+  const interpEl = document.getElementById("st-app-interpretation");
+  if (interpEl) {
+    const parts = [];
+    if (preview.question_intent) parts.push(`Intent: ${preview.question_intent}`);
+    if (preview.competency_target) parts.push(`Competency: ${preview.competency_target}`);
+    interpEl.textContent = parts.join(" · ");
+  }
+
+  const draftEl = document.getElementById("st-app-draft-text");
+  if (draftEl) draftEl.textContent = preview.answer_draft || "";
+  _appDraftText = preview.answer_draft || "";
+
+  const charEl = document.getElementById("st-app-char-status");
+  if (charEl && preview.character_limit) {
+    const over = preview.character_count > preview.character_limit;
+    charEl.textContent = `${preview.character_count} / ${preview.character_limit} characters`;
+    charEl.className = "app-char-status " + (over ? "app-char-over" : "app-char-ok");
+  } else if (charEl) {
+    charEl.textContent = `${preview.character_count || 0} characters`;
+    charEl.className = "app-char-status";
+  }
+
+  const miDiv = document.getElementById("st-app-missing-info");
+  if (miDiv) {
+    miDiv.innerHTML = "";
+    for (const item of preview.missing_info || []) {
+      const el = document.createElement("div");
+      el.className = "missing-item";
+      el.innerHTML =
+        `<span class="mi-code">${_esc(item.code)}</span>` +
+        `<span class="mi-message">${_esc(item.message)}</span>`;
+      miDiv.appendChild(el);
+    }
+  }
+
+  const copyBtn = document.getElementById("st-app-copy-btn");
+  if (copyBtn) copyBtn.hidden = false;
+
+  const fallbackEl = document.getElementById("st-app-fallback-notice");
+  if (fallbackEl) {
+    if (preview.fallback_reason) {
+      fallbackEl.textContent = `Fallback reason: ${preview.fallback_reason}`;
+      fallbackEl.hidden = false;
+    } else {
+      fallbackEl.hidden = true;
+    }
+  }
+
+  const srcEl = document.getElementById("st-app-refine-source");
+  if (srcEl) {
+    srcEl.textContent = preview.refine_source === "llm" ? "Source: LLM" : "Source: Mock";
+  }
+}
+
+async function copyAppDraft() {
+  if (!_appDraftText) return;
+  try {
+    await navigator.clipboard.writeText(_appDraftText);
+    const btn = document.getElementById("st-app-copy-btn");
+    if (btn) { btn.textContent = "Copied!"; setTimeout(() => { btn.textContent = "Copy to clipboard"; }, 1500); }
+  } catch (_) {}
+}
+
+function _showAppError(msg) {
+  const result = document.getElementById("st-app-result");
+  if (result) result.hidden = false;
+  const draftEl = document.getElementById("st-app-draft-text");
+  if (draftEl) draftEl.textContent = msg;
 }

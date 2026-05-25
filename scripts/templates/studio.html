@@ -66,6 +66,34 @@
                        padding: 3px 10px; font-size: .72rem; border-radius: 3px; }
     #st-ai-check-btn:hover { background: rgba(170,170,204,.15); }
     #st-refine-source { margin-top: 8px; font-size: .75rem; color: #888; }
+    #st-app-writing { grid-column: 1 / -1; }
+    #st-app-writing h2 { margin-bottom: 12px; }
+    .app-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .app-col label { display: block; font-size: .75rem; color: #888; margin-bottom: 3px; text-transform: uppercase; }
+    .app-col input, .app-col textarea, .app-col select {
+      width: 100%; box-sizing: border-box; font-size: .9rem;
+      border: 1px solid #ccc; border-radius: 4px; padding: 6px 8px; }
+    .app-col textarea { resize: vertical; }
+    .app-row { display: flex; gap: 12px; margin: 8px 0; align-items: center; flex-wrap: wrap; }
+    .app-row label { display: flex; gap: 6px; align-items: center; cursor: pointer; font-size: .88rem; }
+    #st-app-preview-btn { background: #4a148c; color: #fff; margin-top: 12px; }
+    #st-app-preview-btn:hover { background: #6a1b9a; }
+    #st-app-card-selector { min-height: 40px; }
+    .card-check-item { display: flex; gap: 8px; align-items: center; padding: 4px 0;
+                       font-size: .85rem; border-bottom: 1px solid #f0f0f0; }
+    .card-check-item:last-child { border-bottom: none; }
+    .card-check-item .card-status { font-size: .72rem; color: #888; margin-left: 4px; }
+    #st-app-result { margin-top: 16px; }
+    .app-draft-box { background: #f8f8ff; border: 1px solid #c5cae9; border-radius: 4px;
+                     padding: 12px; font-size: .88rem; white-space: pre-wrap; margin-top: 8px; }
+    .app-char-status { font-size: .8rem; margin-top: 4px; }
+    .app-char-ok { color: #2e7d32; }
+    .app-char-over { color: #c62828; font-weight: 600; }
+    #st-app-copy-btn { background: #37474f; color: #fff; font-size: .82rem;
+                       padding: 6px 14px; margin-top: 8px; }
+    #st-app-copy-btn:hover { background: #546e7a; }
+    #st-app-fallback-notice { margin-top: 8px; font-size: .78rem; color: #795548;
+                              background: #fff8e1; border: 1px solid #ffe082; border-radius: 4px; padding: 6px 10px; }
   </style>
 </head>
 <body>
@@ -132,6 +160,75 @@
         <button id="st-action-build-resume" onclick="buildCard('resume')">Build Resume</button>
         <button id="st-action-build-portfolio" onclick="buildCard('portfolio')">Build Portfolio</button>
         <pre id="st-build-output"></pre>
+      </div>
+    </section>
+
+    <section id="st-app-writing">
+      <h2>Application Writing</h2>
+      <p class="flow-note">Select approved live cards as evidence &rarr; supply target context &rarr; generate preview &rarr; copy to use</p>
+      <div class="app-grid">
+        <div class="app-col">
+          <div class="edit-field">
+            <label>Live cards (select evidence)</label>
+            <div id="st-app-card-selector" aria-label="card selector"><span class="placeholder">Loading cards…</span></div>
+          </div>
+          <div class="app-row" id="st-app-output-type">
+            <strong style="font-size:.85rem;color:#555">Output:</strong>
+            <label><input type="radio" name="app_output_type" value="cover_letter" /> Cover letter</label>
+            <label><input type="radio" name="app_output_type" value="application_answer" checked /> Application answer</label>
+          </div>
+        </div>
+        <div class="app-col">
+          <div class="edit-field">
+            <label for="st-app-organization">Organization</label>
+            <input id="st-app-organization" type="text" placeholder="e.g. Kakao, NinjaLabs" />
+          </div>
+          <div class="edit-field">
+            <label for="st-app-role">Role</label>
+            <input id="st-app-role" type="text" placeholder="e.g. Backend Engineer" />
+          </div>
+          <div class="edit-field">
+            <label for="st-app-question">Question / Prompt</label>
+            <textarea id="st-app-question" rows="3" placeholder="e.g. Describe a technical challenge you solved."></textarea>
+          </div>
+          <div class="edit-field">
+            <label for="st-app-competency">Competency focus</label>
+            <input id="st-app-competency" type="text" placeholder="e.g. problem-solving, leadership" />
+          </div>
+          <div class="edit-field">
+            <label for="st-app-jd">Job description (optional)</label>
+            <textarea id="st-app-jd" rows="2" placeholder="Paste relevant JD text…"></textarea>
+          </div>
+          <div class="app-row">
+            <label for="st-app-charlimit" style="text-transform:uppercase;font-size:.75rem;color:#888">Char limit</label>
+            <input id="st-app-charlimit" type="number" min="1" max="5000" style="width:80px" placeholder="e.g. 800" />
+            <label><input id="st-app-blind" type="checkbox" /> Blind hiring</label>
+          </div>
+        </div>
+      </div>
+      <button id="st-app-preview-btn" onclick="generateAppPreview()">Generate application preview</button>
+      <div id="st-app-result" hidden>
+        <div id="st-app-grounding" class="app-grid" style="margin-top:12px">
+          <div>
+            <div class="grounding-section" id="st-app-facts-section" hidden>
+              <h3>Personal facts (from cards)</h3>
+              <ul id="st-app-facts-list" class="grounding-list facts"></ul>
+            </div>
+            <div class="grounding-section" id="st-app-context-section" hidden>
+              <h3>Target context used</h3>
+              <ul id="st-app-context-list" class="grounding-list assumptions"></ul>
+            </div>
+            <div id="st-app-missing-info" style="margin-top:8px"></div>
+          </div>
+          <div>
+            <div id="st-app-interpretation" style="font-size:.82rem;color:#555;margin-bottom:8px"></div>
+            <div class="app-draft-box" id="st-app-draft-text"></div>
+            <div id="st-app-char-status" class="app-char-status"></div>
+            <button id="st-app-copy-btn" onclick="copyAppDraft()" hidden>Copy to clipboard</button>
+            <div id="st-app-fallback-notice" hidden></div>
+            <div id="st-app-refine-source" style="font-size:.75rem;color:#888;margin-top:4px"></div>
+          </div>
+        </div>
       </div>
     </section>
   </main>

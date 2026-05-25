@@ -643,6 +643,206 @@ def studio_refine_llm(
     return {"ok": True, "draft": draft, "missing_info": missing_info}
 
 
+_APP_WRITING_SCHEMA: dict = {
+    "type": "object",
+    "required": [
+        "personal_facts",
+        "target_context_used",
+        "selected_cards",
+        "assumptions",
+        "missing_info",
+        "answer_draft",
+        "question_intent",
+        "competency_target",
+    ],
+    "properties": {
+        "personal_facts": {"type": "array", "items": {"type": "string"}},
+        "target_context_used": {"type": "array", "items": {"type": "string"}},
+        "selected_cards": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "selection_reason": {"type": "string"},
+                },
+            },
+        },
+        "assumptions": {"type": "array", "items": {"type": "string"}},
+        "missing_info": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"code": {"type": "string"}, "message": {"type": "string"}},
+            },
+        },
+        "answer_draft": {"type": "string"},
+        "question_intent": {"type": "string"},
+        "competency_target": {"type": "string"},
+    },
+}
+
+_APP_WRITING_PROMPT = """\
+Apply an evidence-grounded application-writing workflow:
+
+1. Ground personal facts — personal_facts must come only from the career card data below.
+   Do not invent qualifications, metrics, roles, dates, or outcomes absent from card data.
+2. Separate target context — target_context_used must come only from the supplied target context.
+   Organization claims, motivation, and role framing are target context, not personal facts.
+3. Interpret the request — for application_answer, identify the competency being assessed and
+   record it in question_intent. For cover_letter, record fit angle in competency_target.
+4. Draft the output — write {output_type} prose connecting card facts to target context.
+   Do not invent personal background or organization facts not present in the inputs.
+5. Blind-hiring restriction — if blind_hiring is true, exclude unnecessary background identifiers
+   and add BLIND_HIRING_REVIEW to missing_info for user review.
+Return ONLY a JSON object — no markdown fences, no explanation.
+
+Career card facts (approved personal evidence):
+{card_facts_block}
+
+Target context (supplied for this application only):
+{target_context_block}
+
+Output type: {output_type}
+Blind hiring: {blind_hiring}
+Character limit: {char_limit_str}
+"""
+
+
+def application_preview_llm(
+    output_type: str,
+    cards: list,
+    target_context: dict,
+    client=None,
+    model: Optional[str] = None,
+    cache_dir: Optional[Path] = None,
+    no_cache: bool = False,
+) -> dict:
+    """Generate application preview via LLM. Returns {ok, preview} dict.
+
+    personal_facts are sourced from cards only; target_context_used from target_context only.
+    Raises LLMError on malformed response.
+    """
+    cfg = resolve_provider_config()
+    resolved_model = model or cfg["model"]
+    if client is None:
+        client = _build_client(cfg)
+    cache_dir = cache_dir or Path(".cache/llm")
+
+    card_facts_block = "\n".join(f"- [{c.id}] {c.title}: {c.summary or ''}" for c in cards)
+    char_limit = target_context.get("character_limit")
+    char_limit_str = str(char_limit) if char_limit else "none"
+    blind_hiring = bool(target_context.get("blind_hiring", False))
+
+    tc_lines = []
+    for k in ("organization", "role", "job_description", "question", "competency"):
+        v = target_context.get(k, "")
+        if v:
+            tc_lines.append(f"{k}: {v}")
+    target_context_block = "\n".join(tc_lines) or "(none provided)"
+
+    payload = {
+        "schema_ver": _SCHEMA_VER,
+        "app_ver": 1,
+        "task": "application_preview",
+        "provider": cfg["provider"],
+        "model": resolved_model,
+        "output_type": output_type,
+        "card_ids": [c.id for c in cards],
+        "target_context": {
+            k: target_context.get(k)
+            for k in (
+                "organization",
+                "role",
+                "job_description",
+                "question",
+                "competency",
+                "character_limit",
+                "blind_hiring",
+            )
+        },
+    }
+    key = _cache_key(payload)
+    cached = None if no_cache else _cache_read(key, cache_dir)
+
+    use_json_schema = cfg["provider"] == "google"
+
+    if cached:
+        raw_parsed = cached
+    else:
+        prompt = _APP_WRITING_PROMPT.format(
+            output_type=output_type,
+            card_facts_block=card_facts_block,
+            target_context_block=target_context_block,
+            blind_hiring=str(blind_hiring).lower(),
+            char_limit_str=char_limit_str,
+        )
+        if use_json_schema:
+            try:
+                from google.genai import types as _gtypes  # type: ignore[import]
+
+                gen_cfg = _gtypes.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=_APP_WRITING_SCHEMA,
+                )
+                response = client.models.generate_content(
+                    model=resolved_model, contents=prompt, config=gen_cfg
+                )
+                raw = response.text or ""
+            except Exception as exc:
+                raise LLMError(f"Google application_preview call failed: {exc}") from exc
+        else:
+            raw, _ = _call_with_meta(client, prompt, resolved_model)
+        try:
+            raw_parsed = json.loads(raw.strip())
+        except Exception as exc:
+            raise LLMError(f"Malformed application_preview response: {exc}\nRaw: {raw}") from exc
+        _cache_write(key, raw_parsed, cache_dir)
+
+    personal_facts = [str(f) for f in (raw_parsed.get("personal_facts") or [])]
+    target_context_used = [str(t) for t in (raw_parsed.get("target_context_used") or [])]
+    selected_cards = [
+        {
+            "id": str(c.get("id", "")),
+            "title": str(c.get("title", "")),
+            "selection_reason": str(c.get("selection_reason", "")),
+        }
+        for c in (raw_parsed.get("selected_cards") or [])
+        if isinstance(c, dict)
+    ]
+    assumptions = [str(a) for a in (raw_parsed.get("assumptions") or [])]
+    missing_info = [
+        {"code": str(m.get("code", "")), "message": str(m.get("message", ""))}
+        for m in (raw_parsed.get("missing_info") or [])
+        if isinstance(m, dict)
+    ]
+    answer_draft = str(raw_parsed.get("answer_draft") or "")
+    question_intent = str(raw_parsed.get("question_intent") or "")
+    competency_target = str(raw_parsed.get("competency_target") or "")
+
+    char_count = len(answer_draft)
+    within_limit = (char_count <= char_limit) if char_limit else None
+
+    preview = {
+        "output_type": output_type,
+        "question_intent": question_intent,
+        "competency_target": competency_target,
+        "selected_cards": selected_cards,
+        "personal_facts": personal_facts,
+        "target_context_used": target_context_used,
+        "assumptions": assumptions,
+        "missing_info": missing_info,
+        "answer_draft": answer_draft,
+        "character_count": char_count,
+        "character_limit": char_limit,
+        "within_limit": within_limit,
+        "refine_source": "llm",
+        "fallback_reason": None,
+    }
+    return {"ok": True, "preview": preview}
+
+
 def suggest_card_from_text(
     text: str,
     client=None,
