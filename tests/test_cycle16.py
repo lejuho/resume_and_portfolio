@@ -198,8 +198,11 @@ def test_api_refine_returns_consultant_fields(client, monkeypatch):
 
 
 def test_mock_fallback_unaffected(client, monkeypatch):
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("AI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     rv = client.post("/api/studio/refine", json={"raw_text": "Some project work", "intent": "both"})
     assert rv.status_code == 200
     assert rv.get_json()["draft"]["refine_source"] == "mock"

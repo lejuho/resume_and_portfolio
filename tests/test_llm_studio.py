@@ -72,8 +72,11 @@ def client(repo):
 
 
 def test_refine_mock_source_when_no_key(client, monkeypatch):
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("AI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     rv = client.post("/api/studio/refine", json={"raw_text": "Some project", "intent": "both"})
     assert rv.status_code == 200
     assert rv.get_json()["draft"]["refine_source"] == "mock"
@@ -162,6 +165,10 @@ def test_refine_llm_both_intent(client, monkeypatch):
 
 def test_refine_llm_malformed_falls_back_to_mock(client, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(llm_mod, "_cache_read", lambda *a, **k: None)
     msg = MagicMock()
     msg.content = [MagicMock(text="not valid json {{{{")]
     bad_client = MagicMock()

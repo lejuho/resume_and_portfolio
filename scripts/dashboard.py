@@ -371,6 +371,9 @@ def _title_to_slug(title: str) -> str:
     return slug
 
 
+_TEAM_RE = re.compile(r"\b(we|team|our|collaborated|together|co-)\b", re.IGNORECASE)
+
+
 def _mock_refine(raw_text: str, intent: str) -> dict:
     lines = raw_text.strip().splitlines()
     title = lines[0].strip() if lines else "Untitled"
@@ -382,6 +385,7 @@ def _mock_refine(raw_text: str, intent: str) -> dict:
         w in raw_text.lower()
         for w in ("screenshot", "diagram", "image", "figure", "photo", "visual")
     )
+    has_team_signal = bool(_TEAM_RE.search(raw_text))
 
     evidence = []
     for url in urls:
@@ -402,6 +406,24 @@ def _mock_refine(raw_text: str, intent: str) -> dict:
     else:
         period_start = str(_date.today())
 
+    # Source facts: items directly present in raw text
+    source_facts: list[str] = []
+    if title:
+        source_facts.append(f"Activity: {title}")
+    for year, month in dates:
+        source_facts.append(f"Date: {year}-{month}")
+    for url in urls:
+        source_facts.append(f"Link: {url}")
+    for m in metric_hits:
+        source_facts.append(f"Metric: {m}")
+
+    # Assumptions: interpretations beyond what is stated
+    assumptions: list[str] = []
+    if not dates:
+        assumptions.append("Project period assumed to be current date.")
+    if has_team_signal:
+        assumptions.append("Team activity detected; individual contribution assumed.")
+
     missing_info = []
     if not dates:
         missing_info.append(
@@ -412,21 +434,28 @@ def _mock_refine(raw_text: str, intent: str) -> dict:
             {
                 "code": "MISSING_METRICS",
                 "message": "No metrics found — add numbers, percentages, or multipliers.",
-            }  # noqa: E501
+            }
         )
     if not evidence:
         missing_info.append(
             {
                 "code": "MISSING_EVIDENCE",
                 "message": "No URLs found — add a repo, demo, or reference link.",
-            }  # noqa: E501
+            }
         )
     if not has_visual_kw:
         missing_info.append(
             {
                 "code": "MISSING_VISUAL",
                 "message": "No visual context — add a screenshot, diagram, or image reference.",
-            }  # noqa: E501
+            }
+        )
+    if has_team_signal:
+        missing_info.append(
+            {
+                "code": "CONTRIBUTION_UNCLEAR",
+                "message": "Team activity detected — what was your individual contribution?",
+            }
         )
 
     draft: dict[str, Any] = {
@@ -437,6 +466,8 @@ def _mock_refine(raw_text: str, intent: str) -> dict:
         "status": "draft",
         "visibility": "public",
         "summary": title,
+        "source_facts": source_facts,
+        "assumptions": assumptions,
         "tags": {"domain": [], "skill": [], "audience": []},
         "metrics": metrics,
         "evidence": evidence,
@@ -446,8 +477,10 @@ def _mock_refine(raw_text: str, intent: str) -> dict:
     }
 
     if intent in ("resume", "both"):
-        m_val = metric_hits[0] if metric_hits else "measurable impact"
-        draft["resume_bullet"] = f"• Delivered {title}: achieved {m_val} result"
+        if metric_hits:
+            draft["resume_bullet"] = f"• {title}: {metric_hits[0]}"
+        else:
+            draft["resume_bullet"] = f"• {title}"
 
     if intent in ("portfolio", "both"):
         outcome = metric_hits[0] if metric_hits else "Outcome to be detailed."

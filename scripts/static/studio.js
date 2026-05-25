@@ -144,6 +144,9 @@ function renderPreview(draft, missingInfo) {
     miDiv.appendChild(el);
   }
 
+  _renderGroundingList("st-supported-facts", "st-facts-list", draft.source_facts || []);
+  _renderGroundingList("st-needs-confirmation", "st-assumptions-list", draft.assumptions || []);
+
   const sourceEl = document.getElementById("st-refine-source");
   if (sourceEl) {
     const label = draft.refine_source === "llm" ? "Source: LLM" : "Source: Mock";
@@ -244,6 +247,29 @@ async function buildCard(target) {
   } catch (e) {
     output.textContent = "Network error: " + e.message;
   }
+}
+
+// ── Grounding helpers ────────────────────────────────────────────────────────
+
+function _renderGroundingList(sectionId, listId, items) {
+  const section = document.getElementById(sectionId);
+  const list = document.getElementById(listId);
+  if (!section || !list) return;
+  list.innerHTML = "";
+  if (items.length === 0) {
+    const em = document.createElement("p");
+    em.className = "grounding-empty";
+    em.textContent = "None detected.";
+    list.replaceWith(em);
+    section.hidden = false;
+    return;
+  }
+  for (const item of items) {
+    const li = document.createElement("li");
+    li.textContent = item;
+    list.appendChild(li);
+  }
+  section.hidden = false;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

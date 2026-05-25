@@ -123,7 +123,7 @@ def _build_client(config: dict | None = None):
         raise LLMError("anthropic package not installed; run: uv sync --extra llm") from exc
 
 
-def _call(client, prompt: str, model: str = MODEL) -> str:
+def _call(client, prompt: str, model: str = MODEL, response_json: bool = False) -> str:
     try:
         from google import genai as _genai  # type: ignore[import]
 
@@ -132,7 +132,18 @@ def _call(client, prompt: str, model: str = MODEL) -> str:
         _google_client_type = None  # type: ignore[assignment]
 
     if _google_client_type is not None and isinstance(client, _google_client_type):
-        response = client.models.generate_content(model=model, contents=prompt)
+        gen_cfg = None
+        if response_json:
+            try:
+                from google.genai import types as _gtypes  # type: ignore[import]
+
+                gen_cfg = _gtypes.GenerateContentConfig(response_mime_type="application/json")
+            except (ImportError, Exception):
+                gen_cfg = None
+        if gen_cfg is not None:
+            response = client.models.generate_content(model=model, contents=prompt, config=gen_cfg)
+        else:
+            response = client.models.generate_content(model=model, contents=prompt)
         try:
             text = response.text
         except AttributeError:
@@ -345,6 +356,12 @@ and produce output that a hiring manager or portfolio reader would find credible
 Return ONLY a JSON object — no markdown fences, no explanation.
 
 Always-present fields:
+  source_facts: list of strings — factual items directly verifiable from the raw notes;
+    only what is explicitly stated (tool names, dates, URLs, metrics, named outcomes);
+    no invention
+  assumptions: list of strings — interpretations that go beyond what is stated, e.g.
+    assumed sole ownership, inferred impact when none is stated, inferred context;
+    may be empty if all claims are supported
   title: string — concise project/role name (≤80 chars)
   type: one of project/talk/paper/hackathon/role/award/writing/course/community
   summary: string — 1-2 sharp sentences for a portfolio card (≤200 chars)
@@ -355,14 +372,16 @@ Always-present fields:
   insight: string — what you learned or would do differently (1 sentence)
   decisions_tradeoffs: string — a notable tradeoff or constraint navigated (1-2 sentences)
   tags: object with domain (list[str]), skill (list[str]), audience (list[str])
-  metrics: list of short strings — concrete numbers/percentages (e.g. "40%", "2x")
+  metrics: list of short strings — concrete numbers/percentages present in input only
+    (e.g. "40%", "2x"); do not invent metrics absent from the notes
   evidence: list of objects with type ("repo"|"deck"|"writeup"|"demo"|"article"|"other")
-    and url (string)
-  missing_info: list of objects with code (string) and message (string) for gaps
+    and url (string); include only URLs present in the input
+  missing_info: list of objects with code (string) and message (string) for gaps;
+    always include a CONTRIBUTION_UNCLEAR item when team ownership is ambiguous
 
 Intent-conditional fields:
   resume_bullet: string starting with "•" and an action verb — one line,
-    quantified result if possible (if intent includes resume)
+    use only metrics present in source_facts; do not invent outcomes (if intent includes resume)
   portfolio_body: markdown string — narrative prose using ## Problem, ## Framing,
     ## Approach, ## Outcome, ## Insight, ## Decisions & Tradeoffs sections.
     Write in first person. Do not copy the raw notes verbatim. (if intent includes portfolio)
@@ -404,11 +423,13 @@ def studio_refine_llm(
     key = _cache_key(payload)
     cached = None if no_cache else _cache_read(key, cache_dir)
 
+    use_json_schema = cfg["provider"] == "google"
+
     if cached:
         raw_parsed = cached
     else:
         prompt = _STUDIO_REFINE_PROMPT.format(intent=intent, raw_text=raw_text)
-        raw = _call(client, prompt, resolved_model)
+        raw = _call(client, prompt, resolved_model, response_json=use_json_schema)
         try:
             raw_parsed = json.loads(raw.strip())
         except Exception as exc:
@@ -416,6 +437,8 @@ def studio_refine_llm(
         _cache_write(key, raw_parsed, cache_dir)
 
     # Validate and normalize
+    source_facts = [str(f) for f in (raw_parsed.get("source_facts") or [])]
+    assumptions = [str(a) for a in (raw_parsed.get("assumptions") or [])]
     title = str(raw_parsed.get("title") or "Untitled")[:80]
     card_type = raw_parsed.get("type", "project")
     if card_type not in _VALID_TYPES:
@@ -473,6 +496,8 @@ def studio_refine_llm(
         "status": "draft",
         "visibility": "public",
         "summary": summary,
+        "source_facts": source_facts,
+        "assumptions": assumptions,
         "problem": problem,
         "framing": framing,
         "approach": approach,
