@@ -88,3 +88,26 @@ before another implementation pass.
 ## Changes Outside Plan
 
 No scope creep identified. Untracked `.read-counter` files remain excluded from review changes.
+
+---
+
+## RESOLVED
+
+### Issue Classification
+- ISSUE-1: APPLY
+- ISSUE-2: APPLY
+
+### Applied
+
+RESOLVED: ISSUE-1 — Replace regex grounding guard with server-composed answer draft
+- `scripts/dashboard.py`: Removed `_has_ungrounded_claims()`. Added `_compose_answer_draft(output_type, safe_titles, tc)` that builds answer text exclusively from server-authoritative card titles and submitted `target_context` fields.
+- `scripts/dashboard.py`: `_mock_application_preview()` now calls `_compose_answer_draft()` instead of inlining the draft composition, eliminating duplication.
+- `scripts/dashboard.py`: Route LLM success path now calls `_compose_answer_draft()` server-side and overwrites `answer_draft`, `character_count`, `character_limit`, `within_limit` in the LLM result. LLM prose never reaches the client.
+- `tests/test_cycle21.py`: Removed `test_adversarial_llm_answer_triggers_grounding_fallback` (tested the now-removed regex guard). Added `test_llm_path_qualitative_fabrication_absent_from_answer` (qualitative invented narrative absent from answer) and `test_llm_path_answer_composed_from_card_facts_only` (answer contains real card title, not LLM-invented content).
+- 자동 체크: pytest 439 ✅ / ruff check ✅ / ruff format ✅
+
+RESOLVED: ISSUE-2 — Blind-hiring identity triggers full mock fallback; selected_cards also redacted
+- `scripts/dashboard.py`: Route LLM success path: when `_id_flagged` is True, sets `fallback_reason = None` and falls through to the mock path instead of overriding fields and returning LLM output. This ensures answer_draft, selected_cards, and all other output fields are produced by the mock (which correctly applies redaction).
+- `scripts/dashboard.py`: `_mock_application_preview()` now excludes identity-flagged cards from `selected_cards_info` when `blind_hiring=True`, preventing card title and selection_reason from exposing education/background identifiers.
+- `tests/test_cycle21.py`: Updated `test_llm_path_blind_hiring_identity_excluded_by_route` to assert `refine_source == "mock"`, that answer_draft and selected_cards titles/reasons are clean of identity content, and that `BLIND_HIRING_PERSONAL_IDENTIFIERS` code is present.
+- 자동 체크: pytest 439 ✅

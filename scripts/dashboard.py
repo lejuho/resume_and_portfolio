@@ -433,16 +433,26 @@ def _build_target_context_used(tc: dict) -> list[str]:
     return result
 
 
-def _has_ungrounded_claims(draft: str, personal_facts: list[str], tc: dict) -> bool:
-    """Return True if draft contains numeric or role claims absent from facts and target context."""
-    authorized = " ".join(personal_facts) + " " + " ".join(str(v) for v in tc.values())
-    auth_nums = set(re.findall(r"\b\d+(?:\.\d+)?\b", authorized))
-    draft_nums = set(re.findall(r"\b\d+(?:\.\d+)?\b", draft))
-    if draft_nums - auth_nums:
-        return True
-    auth_roles = set(re.findall(r"\b(?:CEO|CFO|CTO|COO|Chairman)\b", authorized, re.IGNORECASE))
-    draft_roles = set(re.findall(r"\b(?:CEO|CFO|CTO|COO|Chairman)\b", draft, re.IGNORECASE))
-    return bool(draft_roles - auth_roles)
+def _compose_answer_draft(output_type: str, safe_titles: list[str], tc: dict) -> str:
+    """Compose answer draft from server-authoritative card titles and submitted context only."""
+    card_titles = ", ".join(safe_titles) if safe_titles else "selected cards"
+    organization = tc.get("organization", "")
+    role = tc.get("role", "")
+    question = tc.get("question", "")
+    competency = tc.get("competency", "")
+    if output_type == "cover_letter":
+        org_str = f" at {organization}" if organization else ""
+        role_str = f"the {role} position" if role else "this position"
+        return (
+            f"I am writing to express my interest in {role_str}{org_str}. "
+            f"My experience with {card_titles} demonstrates capabilities relevant to this role."
+        )
+    q_intro = f'Regarding "{question[:80]}": ' if question else ""
+    comp_str = f" This reflects {competency}." if competency else ""
+    return (
+        f"{q_intro}Through my work on {card_titles}, "
+        f"I developed the relevant capabilities.{comp_str}"
+    )
 
 
 def _mock_refine(raw_text: str, intent: str) -> dict:
@@ -773,8 +783,6 @@ def _load_live_cards(card_ids: list, repo_root: Path) -> tuple[list, tuple | Non
 
 
 def _mock_application_preview(output_type: str, cards: list, target_context: dict) -> dict:
-    organization = target_context.get("organization", "")
-    role = target_context.get("role", "")
     question = target_context.get("question", "")
     competency = target_context.get("competency", "")
     char_limit = target_context.get("character_limit")
@@ -789,6 +797,7 @@ def _mock_application_preview(output_type: str, cards: list, target_context: dic
             "selection_reason": f"Demonstrates {c.summary[:60] if c.summary else c.title}",
         }
         for c in cards
+        if not (blind_hiring and bool(_IDENTITY_RE.search(f"{c.title} {c.summary or ''}")))
     ]
 
     question_intent = (
@@ -819,21 +828,7 @@ def _mock_application_preview(output_type: str, cards: list, target_context: dic
     safe_titles = [
         f.replace("Activity: ", "") for f in personal_facts if f.startswith("Activity: ")
     ]
-    card_titles = ", ".join(safe_titles) if safe_titles else "selected cards"
-    if output_type == "cover_letter":
-        org_str = f" at {organization}" if organization else ""
-        role_str = f"the {role} position" if role else "this position"
-        draft = (
-            f"I am writing to express my interest in {role_str}{org_str}. "
-            f"My experience with {card_titles} demonstrates capabilities relevant to this role."
-        )
-    else:
-        q_intro = f'Regarding "{question[:80]}": ' if question else ""
-        comp_str = f" This reflects {competency}." if competency else ""
-        draft = (
-            f"{q_intro}Through my work on {card_titles}, "
-            f"I developed the relevant capabilities.{comp_str}"
-        )
+    draft = _compose_answer_draft(output_type, safe_titles, target_context)
 
     if char_limit and len(draft) > char_limit:
         draft = draft[:char_limit]
@@ -915,27 +910,31 @@ def api_studio_application_preview():
             except Exception:
                 fallback_reason = "provider_error"
         else:
-            # Override provenance fields server-side; apply blind-hiring and grounding guard.
+            # Override provenance fields server-side; compose answer from card facts only.
             _blind = bool(target_context.get("blind_hiring", False))
             _facts, _id_flagged = _build_card_facts(cards, _blind)
-            _llm_p = llm_result["preview"]
-            _llm_p["personal_facts"] = _facts
-            _llm_p["target_context_used"] = _build_target_context_used(target_context)
             if _id_flagged:
-                _codes = {m.get("code") for m in _llm_p.get("missing_info", [])}
-                if "BLIND_HIRING_PERSONAL_IDENTIFIERS" not in _codes:
-                    _llm_p.setdefault("missing_info", []).append(
-                        {
-                            "code": "BLIND_HIRING_PERSONAL_IDENTIFIERS",
-                            "message": (
-                                "Card title or summary contains education/background "
-                                "identifiers that were excluded from the blind-hiring preview."
-                            ),
-                        }
+                # All LLM output fields may expose blind-hiring identifiers; use mock path.
+                fallback_reason = None
+            else:
+                _llm_p = llm_result["preview"]
+                _llm_p["personal_facts"] = _facts
+                _llm_p["target_context_used"] = _build_target_context_used(target_context)
+                _safe_titles = [
+                    f.replace("Activity: ", "") for f in _facts if f.startswith("Activity: ")
+                ]
+                _char_limit = target_context.get("character_limit")
+                _draft = _compose_answer_draft(output_type, _safe_titles, target_context)
+                if _char_limit and len(_draft) > _char_limit:
+                    _draft = _draft[:_char_limit]
+                    _llm_p.setdefault("assumptions", []).append(
+                        "Draft truncated to fit the character limit."
                     )
-            if not _has_ungrounded_claims(_llm_p.get("answer_draft", ""), _facts, target_context):
+                _llm_p["answer_draft"] = _draft
+                _llm_p["character_count"] = len(_draft)
+                _llm_p["character_limit"] = _char_limit
+                _llm_p["within_limit"] = (len(_draft) <= _char_limit) if _char_limit else None
                 return jsonify(llm_result)
-            fallback_reason = "malformed_response"
     else:
         fallback_reason = "not_configured"
 

@@ -907,11 +907,11 @@ def test_studio_js_renders_app_assumptions_block(client):
     assert b"assumptions" in rv.data
 
 
-# ISSUE-1 (route-level): grounding guard on answer_draft
+# ISSUE-1 (route-level): server-composed answer replaces LLM prose
 
 
-def test_adversarial_llm_answer_triggers_grounding_fallback(client, monkeypatch):
-    """Route grounding guard falls back when LLM answer contains invented metrics or roles."""
+def test_llm_path_qualitative_fabrication_absent_from_answer(client, monkeypatch):
+    """LLM prose with qualitative fabrications is replaced by server-composed answer."""
     monkeypatch.setenv("AI_PROVIDER", "anthropic")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
 
@@ -919,17 +919,15 @@ def test_adversarial_llm_answer_triggers_grounding_fallback(client, monkeypatch)
         return {
             "ok": True,
             "preview": {
-                "personal_facts": ["Metric: increased revenue 999%"],
-                "target_context_used": ["Organization: Fabricated Corp"],
-                "selected_cards": [
-                    {"id": "auth-service", "title": "Auth Service", "selection_reason": "r"}
-                ],
+                "personal_facts": [],
+                "target_context_used": [],
+                "selected_cards": [],
                 "assumptions": [],
                 "missing_info": [],
-                "answer_draft": "As CEO, I increased revenue 999% at Fabricated Corp.",
+                "answer_draft": "I founded Fabricated Corp and led its global expansion.",
                 "question_intent": "problem solving",
                 "competency_target": "",
-                "character_count": 51,
+                "character_count": 55,
                 "character_limit": None,
                 "within_limit": None,
                 "refine_source": "llm",
@@ -941,18 +939,52 @@ def test_adversarial_llm_answer_triggers_grounding_fallback(client, monkeypatch)
     rv = _mock_client(client, _answer_payload())
     assert rv.status_code == 200
     preview = rv.get_json()["preview"]
-    assert preview["refine_source"] == "mock"
-    assert preview["fallback_reason"] == "malformed_response"
+    assert "Fabricated Corp" not in preview["answer_draft"]
+    assert "founded" not in preview["answer_draft"]
+
+
+def test_llm_path_answer_composed_from_card_facts_only(client, monkeypatch):
+    """Route composes answer_draft from server-authoritative card titles, not LLM prose."""
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+
+    def fake_llm(output_type, cards, target_context, **kwargs):
+        return {
+            "ok": True,
+            "preview": {
+                "personal_facts": ["Activity: Fabricated Service"],
+                "target_context_used": ["Organization: Fabricated Corp"],
+                "selected_cards": [],
+                "assumptions": [],
+                "missing_info": [],
+                "answer_draft": "As CEO of Fabricated Corp I achieved 999% growth.",
+                "question_intent": "problem solving",
+                "competency_target": "",
+                "character_count": 50,
+                "character_limit": None,
+                "within_limit": None,
+                "refine_source": "llm",
+                "fallback_reason": None,
+            },
+        }
+
+    monkeypatch.setattr(llm_mod, "application_preview_llm", fake_llm)
+    rv = _mock_client(client, _answer_payload())
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    # answer_draft must mention the real card title, not the LLM-invented content
+    assert "Auth Service" in preview["answer_draft"]
+    assert "Fabricated Corp" not in preview["answer_draft"]
     assert "999%" not in preview["answer_draft"]
-    assert "CEO" not in preview["answer_draft"]
-    assert not any("Fabricated Corp" in t for t in preview["target_context_used"])
+    # refine_source should be "llm" (non-blind-hiring LLM path succeeds)
+    assert preview["refine_source"] == "llm"
 
 
 # ISSUE-2 (route-level): blind-hiring shared helper on LLM path
 
 
 def test_llm_path_blind_hiring_identity_excluded_by_route(identity_client, monkeypatch):
-    """Route applies blind-hiring redaction via shared helper on LLM path too."""
+    """Blind-hiring identity card triggers mock fallback — answer_draft and selected_cards clean."""
     monkeypatch.setenv("AI_PROVIDER", "anthropic")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
 
@@ -969,15 +1001,15 @@ def test_llm_path_blind_hiring_identity_excluded_by_route(identity_client, monke
                     {
                         "id": "snu-project",
                         "title": "Seoul National University Graduate",
-                        "selection_reason": "relevant",
+                        "selection_reason": "Born in Busan context",
                     }
                 ],
                 "assumptions": [],
                 "missing_info": [],
-                "answer_draft": "I developed analytics capabilities.",
+                "answer_draft": "Born in Busan, I graduated Seoul National University.",
                 "question_intent": "assessing problem solving",
                 "competency_target": "",
-                "character_count": 35,
+                "character_count": 54,
                 "character_limit": None,
                 "within_limit": None,
                 "refine_source": "llm",
@@ -992,7 +1024,15 @@ def test_llm_path_blind_hiring_identity_excluded_by_route(identity_client, monke
     )
     assert rv.status_code == 200
     preview = rv.get_json()["preview"]
+    # Route must fall back to mock — personal_facts, answer_draft, selected_cards all clean
+    assert preview["refine_source"] == "mock"
     assert not any("Seoul National University" in f for f in preview["personal_facts"])
     assert not any("Born in Busan" in f for f in preview["personal_facts"])
+    assert "Seoul National University" not in preview["answer_draft"]
+    assert "Born in Busan" not in preview["answer_draft"]
+    # selected_cards from mock path must not expose identity title
+    for sc in preview.get("selected_cards", []):
+        assert "Seoul National University" not in sc.get("title", "")
+        assert "Seoul National University" not in sc.get("selection_reason", "")
     codes = [m["code"] for m in preview["missing_info"]]
     assert "BLIND_HIRING_PERSONAL_IDENTIFIERS" in codes
