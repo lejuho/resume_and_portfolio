@@ -386,33 +386,45 @@ _IDENTITY_RE = re.compile(
 )
 
 
-def _build_card_facts(cards: list, blind_hiring: bool = False) -> tuple[list[str], bool]:
-    """Build personal_facts from cards; apply blind-hiring redaction when requested.
+def _build_fact_ledger(cards: list, blind_hiring: bool = False) -> tuple[list[dict], bool]:
+    """Build server-owned fact ledger from selected cards with blind-hiring redaction.
 
-    Returns (personal_facts, identity_flagged).
+    Returns (ledger, identity_flagged). Each entry has id, kind, text, source_card_id.
     """
-    personal_facts: list[str] = []
+    ledger: list[dict] = []
     identity_flagged = False
+    n = 0
     for c in cards:
-        flagged = blind_hiring and bool(_IDENTITY_RE.search(f"{c.title} {c.summary or ''}"))
-        if flagged:
+        if blind_hiring and bool(_IDENTITY_RE.search(f"{c.title} {c.summary or ''}")):
             identity_flagged = True
-        else:
-            personal_facts.append(f"Activity: {c.title}")
-            if c.summary:
-                personal_facts.append(f"Summary: {c.summary[:100]}")
+            continue
+        n += 1
+        ledger.append({"id": f"F{n}", "kind": "activity", "text": c.title, "source_card_id": c.id})
+        if c.summary:
+            n += 1
+            ledger.append(
+                {
+                    "id": f"F{n}",
+                    "kind": "summary",
+                    "text": c.summary[:100],
+                    "source_card_id": c.id,
+                }
+            )
         for m in list(c.metrics or [])[:2]:
-            personal_facts.append(f"Metric: {m}")
+            n += 1
+            ledger.append({"id": f"F{n}", "kind": "metric", "text": str(m), "source_card_id": c.id})
         for ev in list(c.evidence or [])[:2]:
-            if hasattr(ev, "url"):
-                url = ev.url
-            elif isinstance(ev, dict):
-                url = ev.get("url", "")
-            else:
-                url = ""
+            url = (
+                ev.url
+                if hasattr(ev, "url")
+                else (ev.get("url", "") if isinstance(ev, dict) else "")
+            )
             if url:
-                personal_facts.append(f"Evidence: {url}")
-    return personal_facts, identity_flagged
+                n += 1
+                ledger.append(
+                    {"id": f"F{n}", "kind": "evidence", "text": url, "source_card_id": c.id}
+                )
+    return ledger, identity_flagged
 
 
 def _build_target_context_used(tc: dict) -> list[str]:
@@ -782,23 +794,51 @@ def _load_live_cards(card_ids: list, repo_root: Path) -> tuple[list, tuple | Non
     return loaded, None
 
 
+def _ledger_to_personal_facts(ledger: list[dict]) -> list[str]:
+    """Derive legacy personal_facts list from a fact ledger for response compatibility."""
+    _prefix = {
+        "activity": "Activity",
+        "summary": "Summary",
+        "metric": "Metric",
+        "evidence": "Evidence",
+    }
+    return [f"{_prefix.get(e['kind'], e['kind'].title())}: {e['text']}" for e in ledger]
+
+
+def _ledger_to_selected_cards(ledger: list[dict]) -> list[dict]:
+    """Build server-derived selected_cards from ledger activity entries."""
+    seen: set[str] = set()
+    result = []
+    for e in ledger:
+        if e["kind"] == "activity" and e["source_card_id"] not in seen:
+            seen.add(e["source_card_id"])
+            metrics = [
+                x["text"]
+                for x in ledger
+                if x["kind"] == "metric" and x["source_card_id"] == e["source_card_id"]
+            ]
+            reason = (
+                f"Demonstrates {e['text']}: {metrics[0]}"
+                if metrics
+                else f"Demonstrates {e['text']}"
+            )
+            result.append(
+                {"id": e["source_card_id"], "display_title": e["text"], "selection_reason": reason}
+            )
+    return result
+
+
 def _mock_application_preview(output_type: str, cards: list, target_context: dict) -> dict:
     question = target_context.get("question", "")
     competency = target_context.get("competency", "")
     char_limit = target_context.get("character_limit")
     blind_hiring = bool(target_context.get("blind_hiring", False))
 
-    personal_facts, identity_flagged = _build_card_facts(cards, blind_hiring)
+    fact_ledger, identity_flagged = _build_fact_ledger(cards, blind_hiring)
+    personal_facts = _ledger_to_personal_facts(fact_ledger)
     target_context_used = _build_target_context_used(target_context)
-    selected_cards_info = [
-        {
-            "id": c.id,
-            "title": c.title,
-            "selection_reason": f"Demonstrates {c.summary[:60] if c.summary else c.title}",
-        }
-        for c in cards
-        if not (blind_hiring and bool(_IDENTITY_RE.search(f"{c.title} {c.summary or ''}")))
-    ]
+    selected_cards_info = _ledger_to_selected_cards(fact_ledger)
+    selected_facts = [e["id"] for e in fact_ledger]
 
     question_intent = (
         f"Assessing: {question[:100]}" if output_type == "application_answer" and question else ""
@@ -825,9 +865,7 @@ def _mock_application_preview(output_type: str, cards: list, target_context: dic
             }
         )
 
-    safe_titles = [
-        f.replace("Activity: ", "") for f in personal_facts if f.startswith("Activity: ")
-    ]
+    safe_titles = [e["text"] for e in fact_ledger if e["kind"] == "activity"]
     draft = _compose_answer_draft(output_type, safe_titles, target_context)
 
     if char_limit and len(draft) > char_limit:
@@ -839,6 +877,8 @@ def _mock_application_preview(output_type: str, cards: list, target_context: dic
 
     return {
         "output_type": output_type,
+        "fact_ledger": fact_ledger,
+        "selected_facts": selected_facts,
         "question_intent": question_intent,
         "competency_target": competency_target,
         "selected_cards": selected_cards_info,
@@ -847,6 +887,8 @@ def _mock_application_preview(output_type: str, cards: list, target_context: dic
         "assumptions": assumptions,
         "missing_info": missing_info,
         "answer_draft": draft,
+        "draft_provenance": "server_composed",
+        "ai_guidance": [],
         "character_count": char_count,
         "character_limit": char_limit,
         "within_limit": within_limit,
@@ -897,11 +939,15 @@ def api_studio_application_preview():
     except Exception:
         can_try_llm = False
 
-    if can_try_llm:
+    # Build fact ledger before any LLM call to prevent identity text from reaching provider.
+    _blind = bool(target_context.get("blind_hiring", False))
+    _fact_ledger, _id_flagged = _build_fact_ledger(cards, _blind)
+
+    if can_try_llm and not _id_flagged:
         try:
             from scripts.llm import application_preview_llm
 
-            llm_result = application_preview_llm(output_type, cards, target_context)
+            llm_result = application_preview_llm(output_type, _fact_ledger, target_context)
         except Exception as exc:
             try:
                 from scripts.llm import _classify_exc
@@ -910,31 +956,60 @@ def api_studio_application_preview():
             except Exception:
                 fallback_reason = "provider_error"
         else:
-            # Override provenance fields server-side; compose answer from card facts only.
-            _blind = bool(target_context.get("blind_hiring", False))
-            _facts, _id_flagged = _build_card_facts(cards, _blind)
+            advisory = llm_result.get("advisory", {})
+            valid_ids = {e["id"] for e in _fact_ledger}
+            raw_ids = advisory.get("selected_fact_ids") or []
+            sel_ids = [fid for fid in raw_ids if fid in valid_ids] or list(valid_ids)
+            sel_ledger = [e for e in _fact_ledger if e["id"] in set(sel_ids)]
+            _safe_titles = [e["text"] for e in sel_ledger if e["kind"] == "activity"]
+            if not _safe_titles:
+                _safe_titles = [e["text"] for e in _fact_ledger if e["kind"] == "activity"]
+            _char_limit = target_context.get("character_limit")
+            _draft = _compose_answer_draft(output_type, _safe_titles, target_context)
+            _assumptions: list[str] = []
+            if _char_limit and len(_draft) > _char_limit:
+                _draft = _draft[:_char_limit]
+                _assumptions.append("Draft truncated to fit the character limit.")
+            _ai_guidance = [g for g in (advisory.get("ai_guidance") or []) if isinstance(g, str)]
+            _missing = [
+                m
+                for m in (advisory.get("missing_info") or [])
+                if isinstance(m, dict) and "code" in m
+            ]
             if _id_flagged:
-                # All LLM output fields may expose blind-hiring identifiers; use mock path.
-                fallback_reason = None
-            else:
-                _llm_p = llm_result["preview"]
-                _llm_p["personal_facts"] = _facts
-                _llm_p["target_context_used"] = _build_target_context_used(target_context)
-                _safe_titles = [
-                    f.replace("Activity: ", "") for f in _facts if f.startswith("Activity: ")
-                ]
-                _char_limit = target_context.get("character_limit")
-                _draft = _compose_answer_draft(output_type, _safe_titles, target_context)
-                if _char_limit and len(_draft) > _char_limit:
-                    _draft = _draft[:_char_limit]
-                    _llm_p.setdefault("assumptions", []).append(
-                        "Draft truncated to fit the character limit."
-                    )
-                _llm_p["answer_draft"] = _draft
-                _llm_p["character_count"] = len(_draft)
-                _llm_p["character_limit"] = _char_limit
-                _llm_p["within_limit"] = (len(_draft) <= _char_limit) if _char_limit else None
-                return jsonify(llm_result)
+                _missing.append(
+                    {
+                        "code": "BLIND_HIRING_PERSONAL_IDENTIFIERS",
+                        "message": (
+                            "Card title or summary contains education/background "
+                            "identifiers that were excluded from the blind-hiring preview."
+                        ),
+                    }
+                )
+            preview = {
+                "output_type": output_type,
+                "fact_ledger": _fact_ledger,
+                "selected_facts": sel_ids,
+                "question_intent": str(advisory.get("question_intent") or ""),
+                "competency_target": str(advisory.get("competency_target") or ""),
+                "selected_cards": _ledger_to_selected_cards(sel_ledger or _fact_ledger),
+                "personal_facts": _ledger_to_personal_facts(_fact_ledger),
+                "target_context_used": _build_target_context_used(target_context),
+                "assumptions": _assumptions,
+                "missing_info": _missing,
+                "answer_draft": _draft,
+                "draft_provenance": "server_composed",
+                "ai_guidance": _ai_guidance,
+                "character_count": len(_draft),
+                "character_limit": _char_limit,
+                "within_limit": (len(_draft) <= _char_limit) if _char_limit else None,
+                "refine_source": "llm",
+                "fallback_reason": None,
+            }
+            return jsonify({"ok": True, "preview": preview})
+    elif can_try_llm and _id_flagged:
+        # Blind-hiring: identity content must not reach the provider; fall back to mock.
+        fallback_reason = None
     else:
         fallback_reason = "not_configured"
 

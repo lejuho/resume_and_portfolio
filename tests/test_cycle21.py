@@ -332,7 +332,7 @@ def test_mock_has_selected_cards_field(client, monkeypatch):
     sc = preview["selected_cards"]
     assert len(sc) == 1
     assert sc[0]["id"] == "auth-service"
-    assert sc[0]["title"] == "Auth Service"
+    assert sc[0]["display_title"] == "Auth Service"
     assert "selection_reason" in sc[0] and sc[0]["selection_reason"]
 
 
@@ -566,7 +566,7 @@ def test_fallback_reason_does_not_leak_key(client, monkeypatch):
 
 
 def test_llm_app_preview_google_schema_used():
-    """Google path requests structured output with _APP_WRITING_SCHEMA."""
+    """Google path requests structured output with _APP_ADVISORY_SCHEMA."""
     captured_config = {}
 
     class FakeGenerateContentConfig:
@@ -575,16 +575,11 @@ def test_llm_app_preview_google_schema_used():
 
     fake_response_text = json.dumps(
         {
-            "personal_facts": ["Activity: Auth Service"],
-            "target_context_used": ["Question: describe challenge"],
-            "selected_cards": [
-                {"id": "auth-service", "title": "Auth Service", "selection_reason": "relevant"}
-            ],
-            "assumptions": [],
-            "missing_info": [],
-            "answer_draft": "Draft answer.",
+            "selected_fact_ids": ["F1"],
             "question_intent": "Assessing problem solving",
             "competency_target": "",
+            "missing_info": [],
+            "ai_guidance": [],
         }
     )
 
@@ -593,12 +588,9 @@ def test_llm_app_preview_google_schema_used():
     fake_client = MagicMock()
     fake_client.models.generate_content.return_value = fake_response
 
-    fake_card = MagicMock()
-    fake_card.id = "auth-service"
-    fake_card.title = "Auth Service"
-    fake_card.summary = "Rebuilt auth service."
-    fake_card.metrics = []
-    fake_card.evidence = []
+    fake_ledger = [
+        {"id": "F1", "kind": "activity", "text": "Auth Service", "source_card_id": "auth-service"}
+    ]
 
     with (
         patch("scripts.llm._build_client", return_value=fake_client),
@@ -611,19 +603,19 @@ def test_llm_app_preview_google_schema_used():
         patch("google.genai.types.GenerateContentConfig", FakeGenerateContentConfig),
     ):
         result = llm_mod.application_preview_llm(
-            "application_answer", [fake_card], {"question": "describe challenge"}, no_cache=True
+            "application_answer", fake_ledger, {"question": "describe challenge"}, no_cache=True
         )
 
     assert result["ok"] is True
+    assert "advisory" in result
     assert "response_schema" in captured_config
     assert captured_config["response_mime_type"] == "application/json"
 
 
 def test_app_writing_schema_has_required_fields():
-    assert "personal_facts" in llm_mod._APP_WRITING_SCHEMA["required"]
-    assert "target_context_used" in llm_mod._APP_WRITING_SCHEMA["required"]
-    assert "answer_draft" in llm_mod._APP_WRITING_SCHEMA["required"]
-    assert "missing_info" in llm_mod._APP_WRITING_SCHEMA["required"]
+    assert "selected_fact_ids" in llm_mod._APP_ADVISORY_SCHEMA["required"]
+    assert "question_intent" in llm_mod._APP_ADVISORY_SCHEMA["required"]
+    assert "missing_info" in llm_mod._APP_ADVISORY_SCHEMA["required"]
 
 
 # ── Preview not saved as card ─────────────────────────────────────────────────
@@ -752,19 +744,14 @@ def _snu_answer_payload(**tc_overrides):
 
 
 def test_llm_provenance_overrides_adversarial_llm_response():
-    """personal_facts and selected_cards built server-side even when LLM returns fabrications."""
+    """LLM advisory with unknown fact IDs is returned as-is; route filters fabricated IDs."""
     adversarial_json = json.dumps(
         {
-            "personal_facts": ["Metric: increased revenue 999%", "Role: CEO"],
-            "target_context_used": ["Question: describe challenge"],
-            "selected_cards": [
-                {"id": "not-selected", "title": "Fake Card", "selection_reason": "invented"}
-            ],
-            "assumptions": [],
-            "missing_info": [],
-            "answer_draft": "I as CEO increased revenue 999%.",
+            "selected_fact_ids": ["FAKE-99", "not-a-real-id"],
             "question_intent": "problem solving",
             "competency_target": "",
+            "missing_info": [],
+            "ai_guidance": ["Mention CEO role at Fabricated Corp."],
         }
     )
     fake_response = MagicMock()
@@ -772,12 +759,15 @@ def test_llm_provenance_overrides_adversarial_llm_response():
     fake_client = MagicMock()
     fake_client.models.generate_content.return_value = fake_response
 
-    fake_card = MagicMock()
-    fake_card.id = "auth-service"
-    fake_card.title = "Auth Service"
-    fake_card.summary = "Rebuilt auth service."
-    fake_card.metrics = []
-    fake_card.evidence = []
+    fake_ledger = [
+        {"id": "F1", "kind": "activity", "text": "Auth Service", "source_card_id": "auth-service"},
+        {
+            "id": "F2",
+            "kind": "summary",
+            "text": "Rebuilt auth service.",
+            "source_card_id": "auth-service",
+        },
+    ]
 
     with (
         patch("scripts.llm._build_client", return_value=fake_client),
@@ -790,19 +780,16 @@ def test_llm_provenance_overrides_adversarial_llm_response():
         patch("google.genai.types.GenerateContentConfig", lambda **kw: MagicMock()),
     ):
         result = llm_mod.application_preview_llm(
-            "application_answer", [fake_card], {"question": "describe challenge"}, no_cache=True
+            "application_answer", fake_ledger, {"question": "describe challenge"}, no_cache=True
         )
 
     assert result["ok"] is True
-    preview = result["preview"]
-    assert not any("999%" in f for f in preview["personal_facts"])
-    assert not any("CEO" in f for f in preview["personal_facts"])
-    assert any("Auth Service" in f for f in preview["personal_facts"])
-    ids = [sc["id"] for sc in preview["selected_cards"]]
-    assert "not-selected" not in ids
-    assert "auth-service" in ids
-    # target_context_used must be server-side built; adversarial org must not appear
-    assert not any("Fabricated Corp" in t for t in preview["target_context_used"])
+    advisory = result["advisory"]
+    # LLM-returned IDs are passed through; the route discards unknown ones
+    assert advisory["selected_fact_ids"] == ["FAKE-99", "not-a-real-id"]
+    assert advisory["question_intent"] == "problem solving"
+    # ai_guidance is advisory only — returned but never enters answer_draft
+    assert any("Fabricated Corp" in g for g in advisory["ai_guidance"])
 
 
 # ISSUE-2: Blind-hiring identity detection
@@ -1032,7 +1019,123 @@ def test_llm_path_blind_hiring_identity_excluded_by_route(identity_client, monke
     assert "Born in Busan" not in preview["answer_draft"]
     # selected_cards from mock path must not expose identity title
     for sc in preview.get("selected_cards", []):
-        assert "Seoul National University" not in sc.get("title", "")
+        assert "Seoul National University" not in sc.get("display_title", sc.get("title", ""))
         assert "Seoul National University" not in sc.get("selection_reason", "")
     codes = [m["code"] for m in preview["missing_info"]]
     assert "BLIND_HIRING_PERSONAL_IDENTIFIERS" in codes
+
+
+# ── Revised Sprint Contract: fact_ledger, draft_provenance, ai_guidance ───────
+
+
+def test_response_includes_fact_ledger_and_provenance(client, monkeypatch):
+    """Mock response includes fact_ledger entries and draft_provenance=server_composed."""
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    rv = _mock_client(client, _answer_payload())
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    assert "fact_ledger" in preview
+    assert len(preview["fact_ledger"]) > 0
+    entry = preview["fact_ledger"][0]
+    assert "id" in entry and "kind" in entry and "text" in entry and "source_card_id" in entry
+    assert preview["draft_provenance"] == "server_composed"
+    assert "selected_facts" in preview
+
+
+def test_llm_path_unknown_fact_ids_discarded(client, monkeypatch):
+    """LLM returning non-existent fact IDs falls back to all ledger facts for draft."""
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+
+    def fake_llm(output_type, fact_ledger, target_context, **kwargs):
+        return {
+            "ok": True,
+            "advisory": {
+                "selected_fact_ids": ["UNKNOWN-99", "FAKE-100"],
+                "question_intent": "problem solving",
+                "competency_target": "",
+                "missing_info": [],
+                "ai_guidance": [],
+            },
+        }
+
+    monkeypatch.setattr(llm_mod, "application_preview_llm", fake_llm)
+    rv = _mock_client(client, _answer_payload())
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    # No unknown IDs → falls back to all ledger facts → real card title in draft
+    assert "Auth Service" in preview["answer_draft"]
+    assert preview["refine_source"] == "llm"
+    assert preview["draft_provenance"] == "server_composed"
+
+
+def test_blind_hiring_llm_not_called_when_identity_flagged(identity_client, monkeypatch):
+    """Route skips LLM call when blind_hiring=True and identity card is selected."""
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+
+    llm_called = []
+
+    def fake_llm(*args, **kwargs):
+        llm_called.append(True)
+        return {
+            "ok": True,
+            "advisory": {
+                "selected_fact_ids": [],
+                "question_intent": "",
+                "competency_target": "",
+                "missing_info": [],
+                "ai_guidance": [],
+            },
+        }
+
+    monkeypatch.setattr(llm_mod, "application_preview_llm", fake_llm)
+    identity_client.post(
+        "/api/studio/application-preview",
+        json=_snu_answer_payload(blind_hiring=True),
+    )
+    assert len(llm_called) == 0, "LLM must not be called when identity card is flagged"
+
+
+def test_llm_path_response_includes_new_fields(client, monkeypatch):
+    """LLM path response includes fact_ledger, selected_facts, draft_provenance, ai_guidance."""
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+
+    def fake_llm(output_type, fact_ledger, target_context, **kwargs):
+        return {
+            "ok": True,
+            "advisory": {
+                "selected_fact_ids": [fact_ledger[0]["id"]] if fact_ledger else [],
+                "question_intent": "Assessing problem solving",
+                "competency_target": "analytical",
+                "missing_info": [],
+                "ai_guidance": ["Consider adding quantitative outcomes."],
+            },
+        }
+
+    monkeypatch.setattr(llm_mod, "application_preview_llm", fake_llm)
+    rv = _mock_client(client, _answer_payload())
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    assert preview["draft_provenance"] == "server_composed"
+    assert "fact_ledger" in preview
+    assert "selected_facts" in preview
+    assert "ai_guidance" in preview
+    assert preview["ai_guidance"] == ["Consider adding quantitative outcomes."]
+    assert preview["refine_source"] == "llm"
+
+
+def test_studio_html_has_app_guidance_section(client):
+    rv = client.get("/studio")
+    assert b"st-app-guidance-section" in rv.data
+    assert b"st-app-guidance-list" in rv.data
+
+
+def test_studio_js_renders_ai_guidance_separately(client):
+    rv = client.get("/static/studio.js")
+    assert b"st-app-guidance-section" in rv.data
+    assert b"ai_guidance" in rv.data

@@ -646,33 +646,13 @@ def studio_refine_llm(
     return {"ok": True, "draft": draft, "missing_info": missing_info}
 
 
-_APP_WRITING_SCHEMA: dict = {
+_APP_ADVISORY_SCHEMA: dict = {
     "type": "object",
-    "required": [
-        "personal_facts",
-        "target_context_used",
-        "selected_cards",
-        "assumptions",
-        "missing_info",
-        "answer_draft",
-        "question_intent",
-        "competency_target",
-    ],
+    "required": ["selected_fact_ids", "question_intent", "competency_target", "missing_info"],
     "properties": {
-        "personal_facts": {"type": "array", "items": {"type": "string"}},
-        "target_context_used": {"type": "array", "items": {"type": "string"}},
-        "selected_cards": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "id": {"type": "string"},
-                    "title": {"type": "string"},
-                    "selection_reason": {"type": "string"},
-                },
-            },
-        },
-        "assumptions": {"type": "array", "items": {"type": "string"}},
+        "selected_fact_ids": {"type": "array", "items": {"type": "string"}},
+        "question_intent": {"type": "string"},
+        "competency_target": {"type": "string"},
         "missing_info": {
             "type": "array",
             "items": {
@@ -680,28 +660,24 @@ _APP_WRITING_SCHEMA: dict = {
                 "properties": {"code": {"type": "string"}, "message": {"type": "string"}},
             },
         },
-        "answer_draft": {"type": "string"},
-        "question_intent": {"type": "string"},
-        "competency_target": {"type": "string"},
+        "ai_guidance": {"type": "array", "items": {"type": "string"}},
     },
 }
 
-_APP_WRITING_PROMPT = """\
-Apply an evidence-grounded application-writing workflow:
+_APP_ADVISORY_PROMPT = """\
+You are an advisory assistant for application writing. The server owns all personal facts.
+Your role is to select relevant fact IDs, interpret the request, and provide guidance.
 
-1. Ground personal facts — personal_facts must come only from the career card data below.
-   Do not invent qualifications, metrics, roles, dates, or outcomes absent from card data.
-2. Separate target context — target_context_used must come only from the supplied target context.
-   Organization claims, motivation, and role framing are target context, not personal facts.
-3. Interpret the request — for application_answer, identify the competency being assessed and
-   record it in question_intent. For cover_letter, record fit angle in competency_target.
-4. Draft the output — write {output_type} prose connecting card facts to target context.
-   Do not invent personal background or organization facts not present in the inputs.
-5. Blind-hiring restriction — if blind_hiring is true, exclude unnecessary background identifiers
-   and add BLIND_HIRING_REVIEW to missing_info for user review.
+1. Select — from the server fact IDs below, choose which are most relevant to {output_type}.
+   Return their IDs in selected_fact_ids. Do not invent new facts or IDs.
+2. Interpret — for application_answer, identify the competency being assessed (question_intent).
+   For cover_letter, identify the fit angle (competency_target).
+3. Flag gaps — report missing information as missing_info with a code and message.
+4. Guide — optionally suggest how the user could strengthen the application in ai_guidance.
+   This is non-copyable advisory text only; the server composes the verified draft.
 Return ONLY a JSON object — no markdown fences, no explanation.
 
-Career card facts (approved personal evidence):
+Server-issued fact IDs (approved personal evidence):
 {card_facts_block}
 
 Target context (supplied for this application only):
@@ -715,16 +691,18 @@ Character limit: {char_limit_str}
 
 def application_preview_llm(
     output_type: str,
-    cards: list,
+    fact_ledger: list,
     target_context: dict,
     client=None,
     model: Optional[str] = None,
     cache_dir: Optional[Path] = None,
     no_cache: bool = False,
 ) -> dict:
-    """Generate application preview via LLM. Returns {ok, preview} dict.
+    """Generate application advisory via LLM. Returns {ok, advisory} dict.
 
-    personal_facts are sourced from cards only; target_context_used from target_context only.
+    Accepts a pre-built, pre-redacted fact_ledger from the server.
+    Returns advisory output only: selected_fact_ids, question_intent, competency_target,
+    missing_info, ai_guidance. The caller composes the verified answer_draft server-side.
     Raises LLMError on malformed response.
     """
     cfg = resolve_provider_config()
@@ -733,7 +711,7 @@ def application_preview_llm(
         client = _build_client(cfg)
     cache_dir = cache_dir or Path(".cache/llm")
 
-    card_facts_block = "\n".join(f"- [{c.id}] {c.title}: {c.summary or ''}" for c in cards)
+    card_facts_block = "\n".join(f"- [{e['id']}] ({e['kind']}) {e['text']}" for e in fact_ledger)
     char_limit = target_context.get("character_limit")
     char_limit_str = str(char_limit) if char_limit else "none"
     blind_hiring = bool(target_context.get("blind_hiring", False))
@@ -747,12 +725,12 @@ def application_preview_llm(
 
     payload = {
         "schema_ver": _SCHEMA_VER,
-        "app_ver": 1,
-        "task": "application_preview",
+        "app_ver": 2,
+        "task": "application_advisory",
         "provider": cfg["provider"],
         "model": resolved_model,
         "output_type": output_type,
-        "card_ids": [c.id for c in cards],
+        "fact_ids": [e["id"] for e in fact_ledger],
         "target_context": {
             k: target_context.get(k)
             for k in (
@@ -774,7 +752,7 @@ def application_preview_llm(
     if cached:
         raw_parsed = cached
     else:
-        prompt = _APP_WRITING_PROMPT.format(
+        prompt = _APP_ADVISORY_PROMPT.format(
             output_type=output_type,
             card_facts_block=card_facts_block,
             target_context_block=target_context_block,
@@ -787,101 +765,36 @@ def application_preview_llm(
 
                 gen_cfg = _gtypes.GenerateContentConfig(
                     response_mime_type="application/json",
-                    response_schema=_APP_WRITING_SCHEMA,
+                    response_schema=_APP_ADVISORY_SCHEMA,
                 )
                 response = client.models.generate_content(
                     model=resolved_model, contents=prompt, config=gen_cfg
                 )
                 raw = response.text or ""
             except Exception as exc:
-                raise LLMError(f"Google application_preview call failed: {exc}") from exc
+                raise LLMError(f"Google application_advisory call failed: {exc}") from exc
         else:
             raw, _ = _call_with_meta(client, prompt, resolved_model)
         try:
             raw_parsed = json.loads(raw.strip())
         except Exception as exc:
-            raise LLMError(f"Malformed application_preview response: {exc}\nRaw: {raw}") from exc
+            raise LLMError(f"Malformed application_advisory response: {exc}\nRaw: {raw}") from exc
         _cache_write(key, raw_parsed, cache_dir)
 
-    # Provenance fields: build server-side from the requested cards to prevent LLM
-    # or cache from substituting invented facts or unselected card references.
-    personal_facts: list[str] = []
-    for _c in cards:
-        personal_facts.append(f"Activity: {_c.title}")
-        if _c.summary:
-            personal_facts.append(f"Summary: {_c.summary[:100]}")
-        for _m in list(_c.metrics or [])[:2]:
-            personal_facts.append(f"Metric: {_m}")
-        for _ev in list(_c.evidence or [])[:2]:
-            if hasattr(_ev, "url"):
-                _url = _ev.url
-            elif isinstance(_ev, dict):
-                _url = _ev.get("url", "")
-            else:
-                _url = ""
-            if _url:
-                personal_facts.append(f"Evidence: {_url}")
-
-    # Use LLM selection_reason only for cards that are actually in the request.
-    _llm_reasons = {
-        str(c.get("id", "")): str(c.get("selection_reason", ""))
-        for c in (raw_parsed.get("selected_cards") or [])
-        if isinstance(c, dict)
+    advisory = {
+        "selected_fact_ids": [str(fid) for fid in (raw_parsed.get("selected_fact_ids") or [])],
+        "question_intent": str(raw_parsed.get("question_intent") or ""),
+        "competency_target": str(raw_parsed.get("competency_target") or ""),
+        "missing_info": [
+            {"code": str(m.get("code", "")), "message": str(m.get("message", ""))}
+            for m in (raw_parsed.get("missing_info") or [])
+            if isinstance(m, dict)
+        ],
+        "ai_guidance": [
+            str(g) for g in (raw_parsed.get("ai_guidance") or []) if isinstance(g, str)
+        ],
     }
-    selected_cards = [
-        {
-            "id": _c.id,
-            "title": _c.title,
-            "selection_reason": _llm_reasons.get(_c.id) or "Selected as application evidence",
-        }
-        for _c in cards
-    ]
-
-    # Build target_context_used server-side from submitted context to prevent LLM fabrication.
-    _tcu: list[str] = []
-    if target_context.get("organization"):
-        _tcu.append(f"Organization: {target_context['organization']}")
-    if target_context.get("role"):
-        _tcu.append(f"Role: {target_context['role']}")
-    if target_context.get("job_description"):
-        _tcu.append("Job description provided")
-    if target_context.get("question"):
-        _tcu.append(f"Question: {target_context['question']}")
-    if target_context.get("competency"):
-        _tcu.append(f"Competency: {target_context['competency']}")
-    if target_context.get("blind_hiring"):
-        _tcu.append("Blind-hiring restrictions applied")
-    target_context_used = _tcu
-    assumptions = [str(a) for a in (raw_parsed.get("assumptions") or [])]
-    missing_info = [
-        {"code": str(m.get("code", "")), "message": str(m.get("message", ""))}
-        for m in (raw_parsed.get("missing_info") or [])
-        if isinstance(m, dict)
-    ]
-    answer_draft = str(raw_parsed.get("answer_draft") or "")
-    question_intent = str(raw_parsed.get("question_intent") or "")
-    competency_target = str(raw_parsed.get("competency_target") or "")
-
-    char_count = len(answer_draft)
-    within_limit = (char_count <= char_limit) if char_limit else None
-
-    preview = {
-        "output_type": output_type,
-        "question_intent": question_intent,
-        "competency_target": competency_target,
-        "selected_cards": selected_cards,
-        "personal_facts": personal_facts,
-        "target_context_used": target_context_used,
-        "assumptions": assumptions,
-        "missing_info": missing_info,
-        "answer_draft": answer_draft,
-        "character_count": char_count,
-        "character_limit": char_limit,
-        "within_limit": within_limit,
-        "refine_source": "llm",
-        "fallback_reason": None,
-    }
-    return {"ok": True, "preview": preview}
+    return {"ok": True, "advisory": advisory}
 
 
 def suggest_card_from_text(

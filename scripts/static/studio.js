@@ -389,11 +389,15 @@ function renderAppPreview(preview) {
     selList.innerHTML = "";
     for (const sc of preview.selected_cards || []) {
       const li = document.createElement("li");
-      li.textContent = `${sc.title}: ${sc.selection_reason || ""}`;
+      li.textContent = `${sc.display_title || sc.title || ""}: ${sc.selection_reason || ""}`;
       selList.appendChild(li);
     }
     selSection.hidden = (preview.selected_cards || []).length === 0;
   }
+
+  _renderGroundingList(
+    "st-app-guidance-section", "st-app-guidance-list", preview.ai_guidance || []
+  );
 
   _renderGroundingList(
     "st-app-assumptions-section", "st-app-assumptions-list", preview.assumptions || []
