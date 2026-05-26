@@ -607,16 +607,26 @@ It must treat cards as the only source for personal factual claims and treat use
 job/organization/question context as a separate source for tailoring. Resume and portfolio
 generation remain separate transformations rather than being reused as generic long-form prose.
 
-**Status (Cycle 21 implemented):** `POST /api/studio/application-preview` is live.
+**Status (Cycle 21 implemented — Escalation Amendment v1 applied):**
+`POST /api/studio/application-preview` is live with a verified-draft trust model.
 
 - Accepts `output_type` (cover_letter | application_answer), `card_ids` (live cards only),
   and `target_context` (organization, role, job_description, question, competency,
   character_limit, blind_hiring).
-- Returns `personal_facts` built from selected cards only; `target_context_used` from
-  supplied context only. The LLM path overrides provenance fields server-side to prevent
-  invented or unselected-card claims.
-- Blind-hiring mode detects and excludes education/background identifiers and emits
-  `BLIND_HIRING_PERSONAL_IDENTIFIERS` if any were detected.
+- Server builds a `fact_ledger` from selected cards before any provider call; each entry
+  carries a stable ID (F1, F2…), kind (activity | summary | metric | evidence), text, and
+  source_card_id. The provider receives only ledger IDs, never raw card text.
+- Provider returns advisory output only: `selected_fact_ids`, `question_intent`,
+  `competency_target`, `missing_info`, `ai_guidance`. Provider prose cannot enter `answer_draft`.
+- `answer_draft` is server-composed from validated ledger activity facts and submitted
+  `target_context`; it carries `draft_provenance=server_composed`. `selected_facts` lists the
+  exact ledger IDs used, including expanded activity facts for any selected card.
+- `ai_guidance` is non-copyable advisory text shown in a separate UI section; under
+  `blind_hiring=true`, identity/background guidance is withheld and
+  `BLIND_HIRING_GUIDANCE_REDACTED` is emitted.
+- Blind-hiring pre-provider check: if any selected card title or summary matches the identity
+  regex, the provider is not called at all and the mock path is used. Post-provider, advisory
+  guidance strings are also screened for identity content.
 - Safe fallback reasons: `not_configured`, `quota_or_rate_limit`, `auth_failed`,
   `network_error`, `malformed_response`, `provider_error`.
 - Application previews are not persisted as canonical cards.

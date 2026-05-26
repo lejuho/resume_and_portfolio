@@ -89,16 +89,17 @@ uv run pcli dashboard --port 5097
 |---:|---|---|---|---|
 | 1 | Panel visibility | Open `/studio`. | Application Writing panel is visibly separate from raw Career Memory capture. |  |
 | 2 | Live-card selector | Open the panel without any live cards. | "No live cards" placeholder is shown; generate is blocked. |  |
-| 3 | Cover-letter preview | Select one live card; set organization and role; click Generate. | Preview shows `personal_facts` from card only; `target_context_used` shows org/role. |  |
-| 4 | Answer preview | Select a card; enter a question and character limit; click Generate. | `question_intent` is shown; `character_count` and `within_limit` are correct. |  |
-| 5 | Source separation | Add organization to an existing answer request. | `personal_facts` is unchanged; org appears only in `target_context_used`. |  |
-| 6 | Blind-hiring review | Select a card whose title or summary contains education/background text; enable Blind Hiring. | `BLIND_HIRING_PERSONAL_IDENTIFIERS` appears in missing info; flagged content is not in the draft. |  |
-| 7 | Selection rationale | Generate any preview. | `selected_cards` section shows each card and its selection_reason. |  |
-| 8 | Assumptions visibility | Generate a preview that produces an assumption (e.g. char-limit truncation). | Assumptions block is visible in the panel. |  |
-| 9 | Fallback reason (mock) | Run without a configured provider. | `Source: Mock — not_configured` is shown in the application panel. |  |
-| 10 | No card created | Generate a cover letter or answer preview. | Card count in Dashboard does not increase. |  |
-| 11 | Copy action | Click Copy to clipboard after generating. | Draft text is copied; button briefly shows "Copied!". |  |
-| 12 | Refine fallback reason | Run without a provider; generate a Career Memory refine. | `Source: Mock — not_configured` appears below the refine preview. |  |
+| 3 | Verified draft provenance | Select one live card; set organization and role; click Generate. | Preview shows `fact_ledger` entries from selected card; `draft_provenance=server_composed`; "Verified draft" label is visible above the copyable text. |  |
+| 4 | Answer preview | Select a card; enter a question and character limit; click Generate. | `question_intent` is shown (advisory); `character_count` and `within_limit` reflect the server-composed draft. |  |
+| 5 | Source separation | Add organization to an existing answer request. | `fact_ledger` entries from card are unchanged; org appears only in `target_context_used`. |  |
+| 6 | AI guidance section | Generate with a provider configured. | "AI Guidance" section is visible and distinct from the verified draft; guidance text is not reachable via the Copy action. |  |
+| 7 | Blind-hiring: flagged card | Select a card whose title or summary contains education/background text; enable Blind Hiring. | `BLIND_HIRING_PERSONAL_IDENTIFIERS` in missing info; flagged content absent from draft, `fact_ledger`, and `selected_cards`. Provider is not called (mock path used). |  |
+| 8 | Blind-hiring: guidance screen | Configure a provider; select a non-flagged card; enable Blind Hiring; generate. | If guidance returns any identity/background phrase, it is absent from `ai_guidance` and `BLIND_HIRING_GUIDANCE_REDACTED` appears in missing info. |  |
+| 9 | Selection rationale | Generate any preview. | `selected_cards` section shows each card and its `selection_reason`; `selected_facts` IDs trace to activity text in the draft. |  |
+| 10 | Fallback reason (mock) | Run without a configured provider. | `Source: Mock — not_configured` is shown in the application panel. |  |
+| 11 | No card created | Generate a cover letter or answer preview. | Card count in Dashboard does not increase. |  |
+| 12 | Copy action | Click Copy to clipboard after generating. | Verified draft text is copied; guidance section text is not included; button briefly shows "Copied!". |  |
+| 13 | Refine fallback reason | Run without a provider; generate a Career Memory refine. | `Source: Mock — not_configured` appears below the refine preview. |  |
 
 ## Sign-Off
 

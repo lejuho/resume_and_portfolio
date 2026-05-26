@@ -730,7 +730,7 @@ def application_preview_llm(
         "provider": cfg["provider"],
         "model": resolved_model,
         "output_type": output_type,
-        "fact_ids": [e["id"] for e in fact_ledger],
+        "fact_ledger": fact_ledger,
         "target_context": {
             k: target_context.get(k)
             for k in (

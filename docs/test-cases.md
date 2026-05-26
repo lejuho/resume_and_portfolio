@@ -189,12 +189,12 @@ implemented in `tests/test_cycle21.py` as of Cycle 21.
 
 | 고유번호 | 테스트 대상 | 테스트 조건 | 테스트 데이터 | 예상 결과 | 기법 |
 |---|---|---|---|---|---|
-| PT-APP-001 | Cover-letter source separation | Cover-letter output is generated | Approved cards plus supplied organization/JD context | Personal claims cite card facts only; organization/fit language uses supplied target context only. | 결정테이블/오류추정 |
-| PT-APP-002 | Question interpretation | User supplies an application question | Collaboration, problem-solving, motivation, or ethics question | Preview exposes interpreted competency/question intent before answer draft. | 동등분할 |
-| PT-APP-003 | Episode selection | Several cards could answer one question | Cards with different evidence strength | Preview identifies selected card(s) and a reason tied to the question. | 시나리오 |
-| PT-APP-004 | Missing target context | User requests motivation/fit answer without organization or JD evidence | Card set plus motivation question only | Draft does not invent organization motivation; missing target context is requested. | 변형관계/오류추정 |
-| PT-APP-005 | Character-count boundary | Answer has supplied minimum/maximum length | Below, at, and above character limit | Preview reports count/compliance and generated submission version respects the defined boundary. | 경곗값분석 |
-| PT-APP-006 | Blind-hiring restriction | Target context forbids personal-background attributes | NCS-style application instruction plus cards | Draft excludes prohibited identity/background information not required for competency proof. | 결정테이블/시나리오 |
+| PT-APP-001 | Cover-letter source separation | Cover-letter output is generated | Approved cards plus supplied organization/JD context | `fact_ledger` entries come from selected cards only; `target_context_used` from supplied context only; `draft_provenance=server_composed`. | 결정테이블/오류추정 |
+| PT-APP-002 | Question interpretation | User supplies an application question | Collaboration, problem-solving, motivation, or ethics question | `question_intent` and `competency_target` are shown (advisory); verified draft does not repeat raw provider prose. | 동등분할 |
+| PT-APP-003 | Episode selection | Several cards could answer one question | Cards with different evidence strength | `selected_facts` lists IDs that trace to the activity text present in `answer_draft`; `selected_cards` is populated from validated ledger entries. | 시나리오 |
+| PT-APP-004 | Missing target context | User requests motivation/fit answer without organization or JD evidence | Card set plus motivation question only | Draft does not invent organization motivation; `ai_guidance` is the advisory field, not `answer_draft`; missing context flagged in `missing_info`. | 변형관계/오류추정 |
+| PT-APP-005 | Character-count boundary | Answer has supplied minimum/maximum length | Below, at, and above character limit | `answer_draft` (server-composed) reports count/compliance; truncation adds an assumption; `draft_provenance=server_composed` remains set. | 경곗값분석 |
+| PT-APP-006 | Blind-hiring restriction | Target context forbids personal-background attributes | NCS-style application instruction plus cards | Provider is not called when selected card has identity content; `ai_guidance` strings are screened post-provider; identity text absent from all output fields including `ai_guidance`. | 결정테이블/시나리오 |
 
 ## Requirement Trace
 

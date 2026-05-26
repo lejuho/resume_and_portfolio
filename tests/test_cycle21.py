@@ -1139,3 +1139,104 @@ def test_studio_js_renders_ai_guidance_separately(client):
     rv = client.get("/static/studio.js")
     assert b"st-app-guidance-section" in rv.data
     assert b"ai_guidance" in rv.data
+
+
+# --- review-v5 new coverage ---
+
+
+def test_selected_facts_expands_to_include_activity_for_summary_selection(client, monkeypatch):
+    """When LLM selects only a summary fact (F2), selected_facts expands to include F1."""
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+
+    def fake_llm(output_type, fact_ledger, target_context, **kwargs):
+        # Find the first summary entry and return only its ID.
+        summary_id = next((e["id"] for e in fact_ledger if e["kind"] == "summary"), None)
+        return {
+            "ok": True,
+            "advisory": {
+                "selected_fact_ids": [summary_id] if summary_id else [],
+                "question_intent": "problem solving",
+                "competency_target": "",
+                "missing_info": [],
+                "ai_guidance": [],
+            },
+        }
+
+    monkeypatch.setattr(llm_mod, "application_preview_llm", fake_llm)
+    rv = _mock_client(client, _answer_payload())
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    selected = preview["selected_facts"]
+    ledger = preview["fact_ledger"]
+    activity_ids = {e["id"] for e in ledger if e["kind"] == "activity"}
+    # At least one activity ID must appear in selected_facts.
+    assert activity_ids & set(selected), (
+        f"selected_facts {selected} must include an activity fact when summary is selected; "
+        f"activity IDs in ledger: {activity_ids}"
+    )
+
+
+def test_blind_hiring_provider_guidance_identity_withheld(client, monkeypatch):
+    """Under blind_hiring, provider guidance with identity text is withheld."""
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+
+    identity_guidance = "Seoul National University graduate with strong analytical skills."
+    clean_guidance = "Consider quantifying the performance improvement."
+
+    def fake_llm(output_type, fact_ledger, target_context, **kwargs):
+        return {
+            "ok": True,
+            "advisory": {
+                "selected_fact_ids": [fact_ledger[0]["id"]] if fact_ledger else [],
+                "question_intent": "problem solving",
+                "competency_target": "",
+                "missing_info": [],
+                "ai_guidance": [identity_guidance, clean_guidance],
+            },
+        }
+
+    monkeypatch.setattr(llm_mod, "application_preview_llm", fake_llm)
+    payload = _answer_payload()
+    payload["target_context"]["blind_hiring"] = True
+    rv = _mock_client(client, payload)
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    # Identity guidance must not appear.
+    assert identity_guidance not in preview.get("ai_guidance", [])
+    # Clean guidance may remain.
+    assert clean_guidance in preview.get("ai_guidance", [])
+    # Warning must be emitted.
+    codes = [m.get("code") for m in preview.get("missing_info", [])]
+    assert "BLIND_HIRING_GUIDANCE_REDACTED" in codes
+
+
+def test_advisory_cache_separates_different_ledgers(tmp_path, monkeypatch):
+    """Two ledgers with same positional IDs but different texts get different cache keys."""
+    from scripts.llm import _cache_key
+
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+
+    base_payload = {
+        "schema_ver": "1",
+        "app_ver": 2,
+        "task": "application_advisory",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-6",
+        "output_type": "application_answer",
+        "target_context": {"question": "Describe a challenge", "character_limit": 500},
+    }
+
+    ledger_a = [{"id": "F1", "kind": "activity", "text": "Auth Service", "source_card_id": "c1"}]
+    ledger_b = [
+        {"id": "F1", "kind": "activity", "text": "Payments Platform", "source_card_id": "c2"}
+    ]
+
+    key_a = _cache_key({**base_payload, "fact_ledger": ledger_a})
+    key_b = _cache_key({**base_payload, "fact_ledger": ledger_b})
+
+    assert key_a != key_b, (
+        "Different ledger contents must produce different cache keys; "
+        "same key risks returning Auth Service guidance for Payments Platform."
+    )

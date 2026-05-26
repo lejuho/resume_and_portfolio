@@ -957,9 +957,24 @@ def api_studio_application_preview():
                 fallback_reason = "provider_error"
         else:
             advisory = llm_result.get("advisory", {})
-            valid_ids = {e["id"] for e in _fact_ledger}
+            _valid_ids_set = {e["id"] for e in _fact_ledger}
             raw_ids = advisory.get("selected_fact_ids") or []
-            sel_ids = [fid for fid in raw_ids if fid in valid_ids] or list(valid_ids)
+            _filtered_ids = [fid for fid in raw_ids if fid in _valid_ids_set]
+            if not _filtered_ids:
+                # No valid advisory IDs → use all ledger facts.
+                sel_ids = [e["id"] for e in _fact_ledger]
+            else:
+                # Expand selection to include the activity fact of each represented card
+                # so selected_facts accurately reflects every factual string in the draft.
+                _sel_card_ids = {
+                    e["source_card_id"] for e in _fact_ledger if e["id"] in set(_filtered_ids)
+                }
+                _expanded = set(_filtered_ids) | {
+                    e["id"]
+                    for e in _fact_ledger
+                    if e["kind"] == "activity" and e["source_card_id"] in _sel_card_ids
+                }
+                sel_ids = [e["id"] for e in _fact_ledger if e["id"] in _expanded]
             sel_ledger = [e for e in _fact_ledger if e["id"] in set(sel_ids)]
             _safe_titles = [e["text"] for e in sel_ledger if e["kind"] == "activity"]
             if not _safe_titles:
@@ -976,6 +991,19 @@ def api_studio_application_preview():
                 for m in (advisory.get("missing_info") or [])
                 if isinstance(m, dict) and "code" in m
             ]
+            if _blind:
+                _clean_guidance = [g for g in _ai_guidance if not _IDENTITY_RE.search(g)]
+                if len(_clean_guidance) < len(_ai_guidance):
+                    _missing.append(
+                        {
+                            "code": "BLIND_HIRING_GUIDANCE_REDACTED",
+                            "message": (
+                                "Some AI guidance contained excluded background "
+                                "identifiers and was withheld."
+                            ),
+                        }
+                    )
+                _ai_guidance = _clean_guidance
             if _id_flagged:
                 _missing.append(
                     {
