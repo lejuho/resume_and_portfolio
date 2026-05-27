@@ -509,3 +509,41 @@ field, rather than being patched independently after generation.
 
 Mock shape or schema tests alone are insufficient for these revised safety criteria.
 Adversarial route tests are required.
+
+---
+
+## Escalation Amendment v2: Completion Checks Formalization
+
+Status: Applied after issue-velocity cap triggered on commit 0080228.
+
+This amendment records the four required completion checks that were implicit in Amendment v1
+and are now formalized as explicit passing criteria for review-v6.
+
+### Required Completion Checks
+
+1. **selected_facts provenance** — Every ledger fact used in the copyable `answer_draft`
+   must appear in `selected_facts`; `selected_cards` must be consistent with the same set.
+   The server must expand advisory selection to include the activity fact for every represented
+   card; `selected_facts` must never be a subset of the draft's factual basis.
+
+2. **Blind-hiring guidance screening** — Under `blind_hiring=true`, provider-returned
+   `ai_guidance` items must be screened for identity/background content using `_IDENTITY_RE`
+   before the response is returned. Withheld items must not appear anywhere in the response;
+   `BLIND_HIRING_GUIDANCE_REDACTED` must be emitted in `missing_info`.
+
+3. **Advisory cache isolation** — The advisory cache key must be derived from the full
+   `fact_ledger` content (kind, text, source_card_id), not from positional IDs alone. Two
+   ledgers sharing an ID value (e.g. `F1`) but representing different cards must produce
+   different cache keys.
+
+4. **Documentation alignment** — `requirements-dashboard.md`, `docs/test-cases.md`, and
+   `docs/acceptance-studio.md` must describe the verified-draft, advisory-only,
+   cache-isolated, and blind-hiring pre-provider-check behavior introduced by Amendment v1.
+
+### Implementation Status at Commit 0080228
+
+All four checks are satisfied. Verified by:
+- Advisor completion check saved to `.review/cycle-21/advisor-feedback/step-001.md`
+- `uv run pytest -v`: 72 passed
+- `uv run ruff check scripts tests`: all checks passed
+- `uv run ruff format --check scripts tests`: 28 files already formatted
