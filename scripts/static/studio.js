@@ -306,7 +306,7 @@ async function loadAppCards() {
     const live = (Array.isArray(data) ? data : []).filter(c => c.status === "live");
     container.innerHTML = "";
     if (!live.length) {
-      container.innerHTML = '<span class="placeholder">No live cards found. Mark cards as Live in Dashboard first.</span>';
+      container.innerHTML = '<span class="placeholder">No live cards found. Mark cards as Live in Dashboard first. If a card shows validation errors it will not appear here.</span>';
       _appCards = [];
       return;
     }
@@ -314,9 +314,21 @@ async function loadAppCards() {
     for (const card of live) {
       const div = document.createElement("div");
       div.className = "card-check-item";
+      const rawSummary = card.summary || "";
+      const summary = rawSummary.length > 80 ? rawSummary.slice(0, 80) + "…" : rawSummary;
+      const mCount = card.metrics_count || 0;
+      const eCount = card.evidence_count || 0;
+      const metaParts = [];
+      if (mCount) metaParts.push(`${mCount} metric${mCount > 1 ? "s" : ""}`);
+      if (eCount) metaParts.push(`${eCount} evidence`);
+      const metaStr = metaParts.length ? metaParts.join(" · ") : "no metrics or evidence";
       div.innerHTML =
         `<input type="checkbox" id="app-card-${_esc(card.id)}" value="${_esc(card.id)}" />` +
-        `<label for="app-card-${_esc(card.id)}">${_esc(card.title)}<span class="card-status">${_esc(card.id)}</span></label>`;
+        `<label for="app-card-${_esc(card.id)}">` +
+          `<span class="card-title">${_esc(card.title)}</span>` +
+          (summary ? `<span class="card-summary">${_esc(summary)}</span>` : "") +
+          `<span class="card-counts">${_esc(metaStr)}</span>` +
+        `</label>`;
       container.appendChild(div);
     }
   } catch (_) {
@@ -462,7 +474,7 @@ async function copyAppDraft() {
   try {
     await navigator.clipboard.writeText(_appDraftText);
     const btn = document.getElementById("st-app-copy-btn");
-    if (btn) { btn.textContent = "Copied!"; setTimeout(() => { btn.textContent = "Copy to clipboard"; }, 1500); }
+    if (btn) { btn.textContent = "Copied!"; setTimeout(() => { btn.textContent = "Copy Verified draft to clipboard"; }, 1500); }
   } catch (_) {}
 }
 

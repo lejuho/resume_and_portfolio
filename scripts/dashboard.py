@@ -1071,7 +1071,8 @@ def api_studio_application_preview():
                 "ok": False,
                 "error": (
                     "All submitted cards were excluded under blind-hiring policy. "
-                    "Submit cards without education or background identifiers."
+                    "To generate a preview: choose cards without education or background "
+                    "identifiers, or remove those details from your evidence cards first."
                 ),
             }
         ), 422

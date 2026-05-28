@@ -79,10 +79,13 @@
     #st-app-preview-btn { background: #4a148c; color: #fff; margin-top: 12px; }
     #st-app-preview-btn:hover { background: #6a1b9a; }
     #st-app-card-selector { min-height: 40px; }
-    .card-check-item { display: flex; gap: 8px; align-items: center; padding: 4px 0;
+    .card-check-item { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0;
                        font-size: .85rem; border-bottom: 1px solid #f0f0f0; }
     .card-check-item:last-child { border-bottom: none; }
-    .card-check-item .card-status { font-size: .72rem; color: #888; margin-left: 4px; }
+    .card-check-item label { display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
+    .card-check-item .card-title { font-weight: 500; }
+    .card-check-item .card-summary { font-size: .78rem; color: #555; }
+    .card-check-item .card-counts { font-size: .72rem; color: #888; }
     #st-app-result { margin-top: 16px; }
     .app-draft-box { background: #f8f8ff; border: 1px solid #c5cae9; border-radius: 4px;
                      padding: 12px; font-size: .88rem; white-space: pre-wrap; margin-top: 8px; }
@@ -237,7 +240,8 @@
             <h3 style="margin-bottom:4px">Verified draft</h3>
             <div class="app-draft-box" id="st-app-draft-text"></div>
             <div id="st-app-char-status" class="app-char-status"></div>
-            <button id="st-app-copy-btn" onclick="copyAppDraft()" hidden>Copy to clipboard</button>
+            <button id="st-app-copy-btn" onclick="copyAppDraft()" hidden>Copy Verified draft to clipboard</button>
+            <small id="st-app-copy-note" style="display:block;margin-top:4px;color:#888">Only the Verified draft text above is copied — AI Guidance is not included.</small>
             <div id="st-app-fallback-notice" hidden></div>
             <div id="st-app-refine-source" style="font-size:.75rem;color:#888;margin-top:4px"></div>
           </div>
