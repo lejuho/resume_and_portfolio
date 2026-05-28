@@ -796,7 +796,7 @@ def test_llm_provenance_overrides_adversarial_llm_response():
 
 
 def test_blind_hiring_identity_card_triggers_identifier_flag(identity_client, monkeypatch):
-    """Card with identity/background content in blind-hiring mode emits identifier flag."""
+    """All-identity cards in blind-hiring mode return 422 — no preview exposed."""
     monkeypatch.delenv("AI_PROVIDER", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -805,13 +805,14 @@ def test_blind_hiring_identity_card_triggers_identifier_flag(identity_client, mo
         "/api/studio/application-preview",
         json=_snu_answer_payload(blind_hiring=True),
     )
-    assert rv.status_code == 200
-    codes = [m["code"] for m in rv.get_json()["preview"]["missing_info"]]
-    assert "BLIND_HIRING_PERSONAL_IDENTIFIERS" in codes
+    assert rv.status_code == 422
+    body = rv.get_json()
+    assert not body["ok"]
+    assert "blind-hiring policy" in body["error"]
 
 
 def test_blind_hiring_identity_content_not_in_personal_facts(identity_client, monkeypatch):
-    """Identity/background text is excluded from personal_facts in blind-hiring mode."""
+    """All-identity cards under blind-hiring return 422 — no personal_facts in response."""
     monkeypatch.delenv("AI_PROVIDER", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -820,13 +821,13 @@ def test_blind_hiring_identity_content_not_in_personal_facts(identity_client, mo
         "/api/studio/application-preview",
         json=_snu_answer_payload(blind_hiring=True),
     )
-    preview = rv.get_json()["preview"]
-    assert not any("Seoul National University" in f for f in preview["personal_facts"])
-    assert not any("Born in Busan" in f for f in preview["personal_facts"])
+    assert rv.status_code == 422
+    body = rv.get_json()
+    assert "preview" not in body
 
 
 def test_blind_hiring_identity_content_not_in_draft(identity_client, monkeypatch):
-    """Identity/background text does not appear in the answer draft under blind-hiring mode."""
+    """All-identity cards under blind-hiring return 422 — no answer_draft in response."""
     monkeypatch.delenv("AI_PROVIDER", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -835,9 +836,9 @@ def test_blind_hiring_identity_content_not_in_draft(identity_client, monkeypatch
         "/api/studio/application-preview",
         json=_snu_answer_payload(blind_hiring=True),
     )
-    draft = rv.get_json()["preview"]["answer_draft"]
-    assert "Seoul National University" not in draft
-    assert "Born in Busan" not in draft
+    assert rv.status_code == 422
+    body = rv.get_json()
+    assert "preview" not in body
 
 
 # ISSUE-3: Malformed response classification and refine-source rendering
@@ -971,58 +972,25 @@ def test_llm_path_answer_composed_from_card_facts_only(client, monkeypatch):
 
 
 def test_llm_path_blind_hiring_identity_excluded_by_route(identity_client, monkeypatch):
-    """Blind-hiring identity card triggers mock fallback — answer_draft and selected_cards clean."""
+    """All-identity card under blind-hiring returns 422 before LLM is called."""
     monkeypatch.setenv("AI_PROVIDER", "anthropic")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+    llm_called = []
 
-    def fake_llm(output_type, cards, target_context, **kwargs):
-        return {
-            "ok": True,
-            "preview": {
-                "personal_facts": [
-                    "Activity: Seoul National University Graduate",
-                    "Summary: Born in Busan; led an analytics migration project.",
-                ],
-                "target_context_used": ["Question: describe challenge"],
-                "selected_cards": [
-                    {
-                        "id": "snu-project",
-                        "title": "Seoul National University Graduate",
-                        "selection_reason": "Born in Busan context",
-                    }
-                ],
-                "assumptions": [],
-                "missing_info": [],
-                "answer_draft": "Born in Busan, I graduated Seoul National University.",
-                "question_intent": "assessing problem solving",
-                "competency_target": "",
-                "character_count": 54,
-                "character_limit": None,
-                "within_limit": None,
-                "refine_source": "llm",
-                "fallback_reason": None,
-            },
-        }
+    def fake_llm(output_type, fact_ledger, target_context, **kwargs):
+        llm_called.append(True)
+        return {"advisory": {}}
 
     monkeypatch.setattr(llm_mod, "application_preview_llm", fake_llm)
     rv = identity_client.post(
         "/api/studio/application-preview",
         json=_snu_answer_payload(blind_hiring=True),
     )
-    assert rv.status_code == 200
-    preview = rv.get_json()["preview"]
-    # Route must fall back to mock — personal_facts, answer_draft, selected_cards all clean
-    assert preview["refine_source"] == "mock"
-    assert not any("Seoul National University" in f for f in preview["personal_facts"])
-    assert not any("Born in Busan" in f for f in preview["personal_facts"])
-    assert "Seoul National University" not in preview["answer_draft"]
-    assert "Born in Busan" not in preview["answer_draft"]
-    # selected_cards from mock path must not expose identity title
-    for sc in preview.get("selected_cards", []):
-        assert "Seoul National University" not in sc.get("display_title", sc.get("title", ""))
-        assert "Seoul National University" not in sc.get("selection_reason", "")
-    codes = [m["code"] for m in preview["missing_info"]]
-    assert "BLIND_HIRING_PERSONAL_IDENTIFIERS" in codes
+    assert rv.status_code == 422
+    assert not llm_called
+    body = rv.get_json()
+    assert not body["ok"]
+    assert "blind-hiring policy" in body["error"]
 
 
 # ── Revised Sprint Contract: fact_ledger, draft_provenance, ai_guidance ───────
@@ -1240,3 +1208,817 @@ def test_advisory_cache_separates_different_ledgers(tmp_path, monkeypatch):
         "Different ledger contents must produce different cache keys; "
         "same key risks returning Auth Service guidance for Payments Platform."
     )
+
+
+# ── review-v6: ISSUE-8 — advisory surface blind-hiring screening ──────────────
+
+_IDENTITY_METRIC_MDX = """\
+---
+id: payment-service
+title: Payment Service
+type: project
+period:
+  start: 2024-05-01
+status: live
+summary: "Optimized payment processing pipeline by 30%."
+metrics:
+  - "Seoul National University graduate led delivery"
+  - "30% performance improvement"
+evidence:
+  - type: repo
+    url: https://github.com/example/payment-service
+---
+"""
+
+_IDENTITY_EVIDENCE_MDX = """\
+---
+id: search-service
+title: Search Service
+type: project
+period:
+  start: 2024-07-01
+status: live
+summary: "Built distributed search indexing."
+metrics:
+  - "50% faster query response"
+evidence:
+  - type: repo
+    url: https://alumni.example.com/search-project
+---
+"""
+
+
+@pytest.fixture()
+def metric_identity_repo(tmp_path, monkeypatch):
+    cards = tmp_path / "cards"
+    cards.mkdir()
+    (cards / "2024-05-payment-service.mdx").write_text(_IDENTITY_METRIC_MDX, encoding="utf-8")
+    monkeypatch.setattr(dash_mod, "REPO_ROOT", tmp_path)
+    return tmp_path
+
+
+@pytest.fixture()
+def metric_identity_client(metric_identity_repo):
+    app.config["TESTING"] = True
+    with app.test_client() as c:
+        yield c
+
+
+@pytest.fixture()
+def evidence_identity_repo(tmp_path, monkeypatch):
+    cards = tmp_path / "cards"
+    cards.mkdir()
+    (cards / "2024-07-search-service.mdx").write_text(_IDENTITY_EVIDENCE_MDX, encoding="utf-8")
+    monkeypatch.setattr(dash_mod, "REPO_ROOT", tmp_path)
+    return tmp_path
+
+
+@pytest.fixture()
+def evidence_identity_client(evidence_identity_repo):
+    app.config["TESTING"] = True
+    with app.test_client() as c:
+        yield c
+
+
+def _payment_answer_payload(**tc_overrides):
+    tc = {"question": "Describe a technical challenge you solved."}
+    tc.update(tc_overrides)
+    return {
+        "output_type": "application_answer",
+        "card_ids": ["payment-service"],
+        "target_context": tc,
+    }  # noqa: E501
+
+
+def _search_answer_payload(**tc_overrides):
+    tc = {"question": "Describe a technical challenge you solved."}
+    tc.update(tc_overrides)
+    return {
+        "output_type": "application_answer",
+        "card_ids": ["search-service"],
+        "target_context": tc,
+    }  # noqa: E501
+
+
+# ISSUE-8: question_intent screening
+
+
+def test_blind_hiring_question_intent_identity_withheld(client, monkeypatch):
+    """Provider question_intent with identity phrase is replaced with safe wording."""
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+
+    identity_intent = "Assess Seoul National University graduate background"
+
+    def fake_llm(output_type, fact_ledger, target_context, **kwargs):
+        return {
+            "ok": True,
+            "advisory": {
+                "selected_fact_ids": [fact_ledger[0]["id"]] if fact_ledger else [],
+                "question_intent": identity_intent,
+                "competency_target": "",
+                "missing_info": [],
+                "ai_guidance": [],
+            },
+        }
+
+    monkeypatch.setattr(llm_mod, "application_preview_llm", fake_llm)
+    payload = _answer_payload()
+    payload["target_context"]["blind_hiring"] = True
+    rv = _mock_client(client, payload)
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    assert "Seoul National University" not in preview["question_intent"]
+    assert preview["question_intent"] != ""
+    codes = [m["code"] for m in preview["missing_info"]]
+    assert "BLIND_HIRING_ADVISORY_REDACTED" in codes
+
+
+# ISSUE-8: competency_target screening
+
+
+def test_blind_hiring_competency_target_identity_withheld(client, monkeypatch):
+    """Provider competency_target with identity phrase is replaced with safe wording."""
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+
+    identity_competency = "Born in Busan leadership style"
+
+    def fake_llm(output_type, fact_ledger, target_context, **kwargs):
+        return {
+            "ok": True,
+            "advisory": {
+                "selected_fact_ids": [fact_ledger[0]["id"]] if fact_ledger else [],
+                "question_intent": "Assessing problem solving",
+                "competency_target": identity_competency,
+                "missing_info": [],
+                "ai_guidance": [],
+            },
+        }
+
+    monkeypatch.setattr(llm_mod, "application_preview_llm", fake_llm)
+    payload = _answer_payload()
+    payload["target_context"]["blind_hiring"] = True
+    rv = _mock_client(client, payload)
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    assert "Born in Busan" not in preview["competency_target"]
+    assert preview["competency_target"] != ""
+    codes = [m["code"] for m in preview["missing_info"]]
+    assert "BLIND_HIRING_ADVISORY_REDACTED" in codes
+
+
+# ISSUE-8: missing_info message screening
+
+
+def test_blind_hiring_missing_info_message_identity_withheld(client, monkeypatch):
+    """Provider missing_info item with identity message has message replaced; code preserved."""
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+
+    def fake_llm(output_type, fact_ledger, target_context, **kwargs):
+        return {
+            "ok": True,
+            "advisory": {
+                "selected_fact_ids": [fact_ledger[0]["id"]] if fact_ledger else [],
+                "question_intent": "Assessing problem solving",
+                "competency_target": "",
+                "missing_info": [
+                    {
+                        "code": "SOME_PROVIDER_CODE",
+                        "message": "Confirm university alumni history.",
+                    }
+                ],
+                "ai_guidance": [],
+            },
+        }
+
+    monkeypatch.setattr(llm_mod, "application_preview_llm", fake_llm)
+    payload = _answer_payload()
+    payload["target_context"]["blind_hiring"] = True
+    rv = _mock_client(client, payload)
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    # Identity phrase must not appear anywhere in missing_info messages.
+    for m in preview["missing_info"]:
+        assert "university" not in m.get("message", "").lower()
+    # Original code must be preserved (message replaced, not dropped).
+    codes = [m["code"] for m in preview["missing_info"]]
+    assert "SOME_PROVIDER_CODE" in codes
+    assert "BLIND_HIRING_ADVISORY_REDACTED" in codes
+
+
+# ISSUE-9: metric-only identity card — mock path
+
+
+def test_blind_hiring_metric_identity_excluded_from_ledger_mock(
+    metric_identity_client, monkeypatch
+):
+    """Identity-bearing metric excluded from fact_ledger and preview in mock path."""
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    rv = metric_identity_client.post(
+        "/api/studio/application-preview",
+        json=_payment_answer_payload(blind_hiring=True),
+    )
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    # Identity metric must not appear in fact_ledger.
+    for entry in preview["fact_ledger"]:
+        assert "Seoul National University" not in entry["text"]
+    # Must not appear in answer_draft or personal_facts.
+    assert "Seoul National University" not in preview["answer_draft"]
+    for f in preview["personal_facts"]:
+        assert "Seoul National University" not in f
+    # Warning must be emitted.
+    codes = [m["code"] for m in preview["missing_info"]]
+    assert "BLIND_HIRING_PERSONAL_IDENTIFIERS" in codes
+
+
+# ISSUE-9: metric-only identity card — LLM path (provider input capture)
+
+
+def test_blind_hiring_metric_identity_excluded_from_llm_input(metric_identity_client, monkeypatch):
+    """Identity-bearing metric must not reach provider input or returned fact_ledger."""
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+
+    captured_ledger: list = []
+
+    def fake_llm(output_type, fact_ledger, target_context, **kwargs):
+        captured_ledger.extend(fact_ledger)
+        return {
+            "ok": True,
+            "advisory": {
+                "selected_fact_ids": [fact_ledger[0]["id"]] if fact_ledger else [],
+                "question_intent": "Assessing delivery ownership",
+                "competency_target": "",
+                "missing_info": [],
+                "ai_guidance": [],
+            },
+        }
+
+    monkeypatch.setattr(llm_mod, "application_preview_llm", fake_llm)
+    rv = metric_identity_client.post(
+        "/api/studio/application-preview",
+        json=_payment_answer_payload(blind_hiring=True),
+    )
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    # Provider input must not contain the identity metric.
+    for entry in captured_ledger:
+        assert "Seoul National University" not in entry["text"]
+    # Returned fact_ledger must not contain it either.
+    for entry in preview["fact_ledger"]:
+        assert "Seoul National University" not in entry["text"]
+    # Answer preview must not contain it.
+    assert "Seoul National University" not in preview["answer_draft"]
+
+
+# ISSUE-9: evidence-only identity card — mock path
+
+
+def test_blind_hiring_evidence_identity_excluded_from_ledger_mock(
+    evidence_identity_client, monkeypatch
+):
+    """Identity-bearing evidence URL excluded from fact_ledger and preview."""
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    rv = evidence_identity_client.post(
+        "/api/studio/application-preview",
+        json=_search_answer_payload(blind_hiring=True),
+    )
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    # Identity URL must not appear in fact_ledger.
+    for entry in preview["fact_ledger"]:
+        assert "alumni.example.com" not in entry["text"]
+    # Must not appear in answer_draft or personal_facts.
+    assert "alumni.example.com" not in preview["answer_draft"]
+    for f in preview["personal_facts"]:
+        assert "alumni.example.com" not in f
+    # Warning must be emitted.
+    codes = [m["code"] for m in preview["missing_info"]]
+    assert "BLIND_HIRING_PERSONAL_IDENTIFIERS" in codes
+
+
+# ISSUE-9: evidence-only identity card — LLM path (provider input capture)
+
+
+def test_blind_hiring_evidence_identity_excluded_from_llm_input(
+    evidence_identity_client, monkeypatch
+):
+    """Identity-bearing evidence URL must not reach provider input or returned fact_ledger."""
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+
+    captured_ledger: list = []
+
+    def fake_llm(output_type, fact_ledger, target_context, **kwargs):
+        captured_ledger.extend(fact_ledger)
+        return {
+            "ok": True,
+            "advisory": {
+                "selected_fact_ids": [fact_ledger[0]["id"]] if fact_ledger else [],
+                "question_intent": "Assessing search engineering",
+                "competency_target": "",
+                "missing_info": [],
+                "ai_guidance": [],
+            },
+        }
+
+    monkeypatch.setattr(llm_mod, "application_preview_llm", fake_llm)
+    rv = evidence_identity_client.post(
+        "/api/studio/application-preview",
+        json=_search_answer_payload(blind_hiring=True),
+    )
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    # Provider input must not contain identity URL.
+    for entry in captured_ledger:
+        assert "alumni.example.com" not in entry["text"]
+    # Returned fact_ledger must not contain it.
+    for entry in preview["fact_ledger"]:
+        assert "alumni.example.com" not in entry["text"]
+    assert "alumni.example.com" not in preview["answer_draft"]
+
+
+# ── Amendment v3: Unified Blind-Hiring Boundary ────────────────────────────────
+
+_OPAQUE_ID_CARD_MDX = """\
+---
+id: alumni-program-2024
+title: Payment Gateway Integration
+type: project
+period:
+  start: 2024-03-01
+status: live
+summary: "Built a high-performance payment gateway handling 10k TPS."
+---
+"""
+
+_CLEAN_CARD_MDX = """\
+---
+id: auth-service
+title: Auth Service Platform
+type: project
+period:
+  start: 2024-02-01
+status: live
+summary: "Implemented OAuth2 authentication service."
+---
+"""
+
+
+@pytest.fixture()
+def opaque_id_repo(tmp_path, monkeypatch):
+    cards = tmp_path / "cards"
+    cards.mkdir()
+    (cards / "2024-03-alumni-program-2024.mdx").write_text(_OPAQUE_ID_CARD_MDX, encoding="utf-8")
+    monkeypatch.setattr(dash_mod, "REPO_ROOT", tmp_path)
+    return tmp_path
+
+
+@pytest.fixture()
+def opaque_id_client(opaque_id_repo):
+    app.config["TESTING"] = True
+    with app.test_client() as c:
+        yield c
+
+
+@pytest.fixture()
+def partial_redact_repo(tmp_path, monkeypatch):
+    cards = tmp_path / "cards"
+    cards.mkdir()
+    (cards / "2024-01-snu-project.mdx").write_text(_IDENTITY_CARD_MDX, encoding="utf-8")
+    (cards / "2024-02-auth-service.mdx").write_text(_CLEAN_CARD_MDX, encoding="utf-8")
+    monkeypatch.setattr(dash_mod, "REPO_ROOT", tmp_path)
+    return tmp_path
+
+
+@pytest.fixture()
+def partial_redact_client(partial_redact_repo):
+    app.config["TESTING"] = True
+    with app.test_client() as c:
+        yield c
+
+
+def test_blind_hiring_opaque_card_id_in_preview(opaque_id_client, monkeypatch):
+    """Canonical card ID is replaced with opaque ref (C1) in all blind-hiring preview fields."""
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    rv = opaque_id_client.post(
+        "/api/studio/application-preview",
+        json={
+            "output_type": "application_answer",
+            "card_ids": ["alumni-program-2024"],
+            "target_context": {"question": "Describe a technical challenge.", "blind_hiring": True},
+        },
+    )
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    for entry in preview["fact_ledger"]:
+        assert entry["source_card_id"] == "C1"
+        assert entry["source_card_id"] != "alumni-program-2024"
+    for sc in preview["selected_cards"]:
+        assert sc["id"] != "alumni-program-2024"
+    import json as _json
+
+    assert "alumni-program-2024" not in _json.dumps(preview)
+
+
+def test_blind_hiring_partial_redaction_returns_200_with_warning(
+    partial_redact_client, monkeypatch
+):
+    """One excluded + one clean card: 200 with BLIND_HIRING_PERSONAL_IDENTIFIERS warning."""
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    rv = partial_redact_client.post(
+        "/api/studio/application-preview",
+        json={
+            "output_type": "application_answer",
+            "card_ids": ["snu-project", "auth-service"],
+            "target_context": {"question": "Describe a challenge.", "blind_hiring": True},
+        },
+    )
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    codes = [m["code"] for m in preview["missing_info"]]
+    assert "BLIND_HIRING_PERSONAL_IDENTIFIERS" in codes
+    for entry in preview["fact_ledger"]:
+        assert "Seoul National University" not in entry["text"]
+        assert "Born in Busan" not in entry["text"]
+
+
+def test_blind_hiring_all_redacted_returns_422_llm_not_called(identity_client, monkeypatch):
+    """All cards excluded under blind-hiring: 422 returned before LLM is called."""
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+    llm_called = []
+
+    def fake_llm(*args, **kwargs):
+        llm_called.append(True)
+        return {"advisory": {}}
+
+    monkeypatch.setattr(llm_mod, "application_preview_llm", fake_llm)
+    rv = identity_client.post(
+        "/api/studio/application-preview",
+        json=_snu_answer_payload(blind_hiring=True),
+    )
+    assert rv.status_code == 422
+    assert not llm_called
+
+
+def test_blind_hiring_target_context_identity_not_in_personal_facts(client, monkeypatch):
+    """Identity in target_context flows to target_context_used but not card-derived fields."""
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    payload = _answer_payload()
+    payload["target_context"]["blind_hiring"] = True
+    payload["target_context"]["question"] = "How did Seoul National University alumni handle scale?"
+    rv = _mock_client(client, payload)
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    for pf in preview["personal_facts"]:
+        assert "Seoul National University" not in pf
+        assert "alumni" not in pf.lower()
+    tcu_str = " ".join(preview["target_context_used"])
+    assert "Seoul National University" in tcu_str
+
+
+def test_blind_hiring_whole_payload_no_identity_in_card_derived_fields(
+    partial_redact_client, monkeypatch
+):
+    """Full blind-hiring preview: card-derived fields contain no excluded identity markers."""
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    rv = partial_redact_client.post(
+        "/api/studio/application-preview",
+        json={
+            "output_type": "application_answer",
+            "card_ids": ["snu-project", "auth-service"],
+            "target_context": {"question": "Describe a challenge.", "blind_hiring": True},
+        },
+    )
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    _MARKERS = ("Seoul National University", "Born in Busan", "snu-project")
+    for pf in preview["personal_facts"]:
+        for marker in _MARKERS:
+            assert marker not in pf
+    for entry in preview["fact_ledger"]:
+        for marker in _MARKERS:
+            assert marker not in entry["text"]
+            assert marker not in entry["source_card_id"]
+    for marker in _MARKERS:
+        assert marker not in preview["answer_draft"]
+
+
+# ── Amendment v3: field-level screening (per-field, not per-card) ──────────────
+
+_IDENTITY_TITLE_CLEAN_METRIC_MDX = """\
+---
+id: id-title-clean-metric
+title: Seoul National University Project
+type: project
+period:
+  start: 2024-04-01
+status: live
+summary: "Born in Busan, led research team."
+metrics:
+  - "30% performance improvement"
+---
+"""
+
+_IDENTITY_SUMMARY_CLEAN_TITLE_MDX = """\
+---
+id: id-summary-clean-title
+title: Payment Processing Service
+type: project
+period:
+  start: 2024-05-01
+status: live
+summary: "Born in Busan, led payment team."
+---
+"""
+
+
+@pytest.fixture()
+def id_title_clean_metric_repo(tmp_path, monkeypatch):
+    cards = tmp_path / "cards"
+    cards.mkdir()
+    (cards / "2024-04-id-title-clean-metric.mdx").write_text(
+        _IDENTITY_TITLE_CLEAN_METRIC_MDX, encoding="utf-8"
+    )
+    monkeypatch.setattr(dash_mod, "REPO_ROOT", tmp_path)
+    return tmp_path
+
+
+@pytest.fixture()
+def id_title_clean_metric_client(id_title_clean_metric_repo):
+    app.config["TESTING"] = True
+    with app.test_client() as c:
+        yield c
+
+
+@pytest.fixture()
+def id_summary_clean_title_repo(tmp_path, monkeypatch):
+    cards = tmp_path / "cards"
+    cards.mkdir()
+    (cards / "2024-05-id-summary-clean-title.mdx").write_text(
+        _IDENTITY_SUMMARY_CLEAN_TITLE_MDX, encoding="utf-8"
+    )
+    monkeypatch.setattr(dash_mod, "REPO_ROOT", tmp_path)
+    return tmp_path
+
+
+@pytest.fixture()
+def id_summary_clean_title_client(id_summary_clean_title_repo):
+    app.config["TESTING"] = True
+    with app.test_client() as c:
+        yield c
+
+
+def test_blind_hiring_identity_title_clean_metric_returns_200(
+    id_title_clean_metric_client, monkeypatch
+):
+    """Identity title screened; card's clean metric remains usable — HTTP 200 with warning."""
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    rv = id_title_clean_metric_client.post(
+        "/api/studio/application-preview",
+        json={
+            "output_type": "application_answer",
+            "card_ids": ["id-title-clean-metric"],
+            "target_context": {"question": "Describe a challenge.", "blind_hiring": True},
+        },
+    )
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    codes = [m["code"] for m in preview["missing_info"]]
+    assert "BLIND_HIRING_PERSONAL_IDENTIFIERS" in codes
+    metric_texts = [e["text"] for e in preview["fact_ledger"] if e["kind"] == "metric"]
+    assert "30% performance improvement" in metric_texts
+    for entry in preview["fact_ledger"]:
+        assert "Seoul National University" not in entry["text"]
+    for pf in preview["personal_facts"]:
+        assert "Seoul National University" not in pf
+
+
+def test_blind_hiring_identity_summary_safe_title_retained(
+    id_summary_clean_title_client, monkeypatch
+):
+    """Identity summary screened; card's clean title is retained in blind-hiring preview."""
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    rv = id_summary_clean_title_client.post(
+        "/api/studio/application-preview",
+        json={
+            "output_type": "application_answer",
+            "card_ids": ["id-summary-clean-title"],
+            "target_context": {"question": "Describe a challenge.", "blind_hiring": True},
+        },
+    )
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    codes = [m["code"] for m in preview["missing_info"]]
+    assert "BLIND_HIRING_PERSONAL_IDENTIFIERS" in codes
+    activity_texts = [e["text"] for e in preview["fact_ledger"] if e["kind"] == "activity"]
+    assert "Payment Processing Service" in activity_texts
+    for entry in preview["fact_ledger"]:
+        assert "Born in Busan" not in entry["text"]
+    for pf in preview["personal_facts"]:
+        assert "Born in Busan" not in pf
+
+
+def test_blind_hiring_identity_title_summary_no_safe_facts_returns_422(
+    identity_client, monkeypatch
+):
+    """Card with identity title+summary and no safe metrics/evidence returns 422."""
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+    llm_called = []
+
+    def fake_llm(*args, **kwargs):
+        llm_called.append(True)
+        return {"advisory": {}}
+
+    monkeypatch.setattr(llm_mod, "application_preview_llm", fake_llm)
+    rv = identity_client.post(
+        "/api/studio/application-preview",
+        json=_snu_answer_payload(blind_hiring=True),
+    )
+    assert rv.status_code == 422
+    assert not llm_called
+    body = rv.get_json()
+    assert not body["ok"]
+    assert "blind-hiring policy" in body["error"]
+
+
+# ── Amendment v3: target_context.competency policy ────────────────────────────
+
+_IDENTITY_COMPETENCY = "Seoul National University graduate background"
+
+
+def test_blind_hiring_identity_competency_not_in_draft_mock_path(client, monkeypatch):
+    """Blind mode: identity competency absent from answer_draft; target_context_used keeps it."""
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    payload = _answer_payload(competency=_IDENTITY_COMPETENCY, blind_hiring=True)
+    rv = _mock_client(client, payload)
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    assert "Seoul National University" not in preview["answer_draft"]
+    for pf in preview["personal_facts"]:
+        assert "Seoul National University" not in pf
+    tcu_str = " ".join(preview["target_context_used"])
+    assert "Seoul National University" in tcu_str
+
+
+def test_blind_hiring_identity_competency_not_in_draft_llm_path(client, monkeypatch):
+    """Identity-bearing competency omitted from answer_draft (LLM); target_context_used keeps it."""
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+
+    def fake_llm(output_type, fact_ledger, target_context, **kwargs):
+        return {
+            "advisory": {
+                "selected_fact_ids": [fact_ledger[0]["id"]] if fact_ledger else [],
+                "question_intent": "Assessing problem solving",
+                "competency_target": "",
+                "missing_info": [],
+                "ai_guidance": [],
+            }
+        }
+
+    monkeypatch.setattr(llm_mod, "application_preview_llm", fake_llm)
+    payload = _answer_payload(competency=_IDENTITY_COMPETENCY, blind_hiring=True)
+    rv = client.post("/api/studio/application-preview", json=payload)
+    assert rv.status_code == 200
+    preview = rv.get_json()["preview"]
+    assert preview["refine_source"] == "llm"
+    assert "Seoul National University" not in preview["answer_draft"]
+    for pf in preview["personal_facts"]:
+        assert "Seoul National University" not in pf
+    tcu_str = " ".join(preview["target_context_used"])
+    assert "Seoul National University" in tcu_str
+
+
+# ── ISSUE-11: provider-payload opaque-ID regression ───────────────────────────
+
+
+def test_blind_hiring_opaque_card_id_in_provider_payload(opaque_id_client, monkeypatch):
+    """Canonical card ID absent from fact_ledger sent to provider; opaque ref C1 present."""
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+    captured: list[list[dict]] = []
+
+    def capturing_llm(output_type, fact_ledger, target_context, **kwargs):
+        captured.append(list(fact_ledger))
+        return {
+            "advisory": {
+                "selected_fact_ids": [fact_ledger[0]["id"]] if fact_ledger else [],
+                "question_intent": "Assessing technical depth",
+                "competency_target": "",
+                "missing_info": [],
+                "ai_guidance": [],
+            }
+        }
+
+    monkeypatch.setattr(llm_mod, "application_preview_llm", capturing_llm)
+    rv = opaque_id_client.post(
+        "/api/studio/application-preview",
+        json={
+            "output_type": "application_answer",
+            "card_ids": ["alumni-program-2024"],
+            "target_context": {
+                "question": "Describe a technical challenge.",
+                "blind_hiring": True,
+            },
+        },
+    )
+    assert rv.status_code == 200
+    assert captured, "LLM was not called"
+    provider_ledger = captured[0]
+    raw_ids = [e["source_card_id"] for e in provider_ledger]
+    assert "alumni-program-2024" not in raw_ids
+    assert any(sid == "C1" for sid in raw_ids)
+    preview = rv.get_json()["preview"]
+    for entry in preview["fact_ledger"]:
+        assert entry["source_card_id"] != "alumni-program-2024"
+    import json as _json
+
+    assert "alumni-program-2024" not in _json.dumps(preview)
+
+
+# ── ISSUE-12: live-card selector API shape regression ─────────────────────────
+
+
+def test_api_cards_returns_array_with_live_card(client):
+    """/api/cards returns a JSON array; live cards are present for the selector to consume."""
+    rv = client.get("/api/cards")
+    assert rv.status_code == 200
+    data = rv.get_json()
+    assert isinstance(data, list), "expected a JSON array, not an object"
+    live = [c for c in data if c.get("status") == "live"]
+    assert len(live) >= 1, "expected at least one live card in the default fixture"
+    card = live[0]
+    assert "id" in card
+    assert "title" in card
+    assert "status" in card
+
+
+def test_api_cards_live_card_usable_in_application_preview(client, monkeypatch):
+    """A live card from /api/cards can be submitted to the application-preview endpoint."""
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AI_API_KEY", raising=False)
+    cards_rv = client.get("/api/cards")
+    live = [c for c in cards_rv.get_json() if c.get("status") == "live"]
+    assert live, "precondition: at least one live card must be available"
+    card_id = live[0]["id"]
+    rv = client.post(
+        "/api/studio/application-preview",
+        json={
+            "output_type": "application_answer",
+            "card_ids": [card_id],
+            "target_context": {"question": "Describe a technical challenge you solved."},
+        },
+    )
+    assert rv.status_code == 200
+    assert rv.get_json()["ok"] is True
+
+
+def test_studio_js_uses_array_guard(client):
+    """loadAppCards() uses Array.isArray guard, status=live filter, and empty-state text."""
+    rv = client.get("/static/studio.js")
+    assert rv.status_code == 200
+    assert b"Array.isArray(data)" in rv.data
+    assert b'status === "live"' in rv.data
+    assert b"No live cards found" in rv.data
+
+
+def test_studio_js_no_data_cards_access(client):
+    """studio.js must not read data.cards — that property does not exist on the array response."""
+    rv = client.get("/static/studio.js")
+    assert rv.status_code == 200
+    assert b"data.cards" not in rv.data

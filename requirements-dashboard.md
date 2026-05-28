@@ -615,7 +615,9 @@ generation remain separate transformations rather than being reused as generic l
   character_limit, blind_hiring).
 - Server builds a `fact_ledger` from selected cards before any provider call; each entry
   carries a stable ID (F1, F2…), kind (activity | summary | metric | evidence), text, and
-  source_card_id. The provider receives only ledger IDs, never raw card text.
+  source_card_id. In blind-hiring mode the provider receives sanitized ledger entries with
+  opaque `source_card_id` references (`C1`, `C2`…) and identity-screened text; in non-blind
+  mode the provider receives full ledger text and canonical card IDs.
 - Provider returns advisory output only: `selected_fact_ids`, `question_intent`,
   `competency_target`, `missing_info`, `ai_guidance`. Provider prose cannot enter `answer_draft`.
 - `answer_draft` is server-composed from validated ledger activity facts and submitted
@@ -624,9 +626,17 @@ generation remain separate transformations rather than being reused as generic l
 - `ai_guidance` is non-copyable advisory text shown in a separate UI section; under
   `blind_hiring=true`, identity/background guidance is withheld and
   `BLIND_HIRING_GUIDANCE_REDACTED` is emitted.
-- Blind-hiring pre-provider check: if any selected card title or summary matches the identity
-  regex, the provider is not called at all and the mock path is used. Post-provider, advisory
-  guidance strings are also screened for identity content.
+- Blind-hiring unified projection (Amendment v3): `_build_safe_projection` screens each card
+  field (title, summary, metric, evidence) independently against identity/background regex.
+  Flagged fields are excluded; clean fields on the same card are retained. Identity-only card
+  titles use a safe display label (`Evidence C1`); canonical card IDs are replaced with opaque
+  references (`C1`, `C2`…) in all provider payloads and rendered preview fields.
+  If at least one usable field survives, preview generation continues with
+  `BLIND_HIRING_PERSONAL_IDENTIFIERS` in `missing_info`. If no usable field remains across all
+  selected cards, the endpoint returns HTTP 422 before any provider call.
+  Provider advisory is sanitized via `_sanitize_advisory` covering `question_intent`,
+  `competency_target`, `missing_info[].message`, and `ai_guidance[]`. Identity-bearing
+  `competency` from `target_context` is not asserted as an applicant fact in `answer_draft`.
 - Safe fallback reasons: `not_configured`, `quota_or_rate_limit`, `auth_failed`,
   `network_error`, `malformed_response`, `provider_error`.
 - Application previews are not persisted as canonical cards.

@@ -386,33 +386,39 @@ _IDENTITY_RE = re.compile(
 )
 
 
-def _build_fact_ledger(cards: list, blind_hiring: bool = False) -> tuple[list[dict], bool]:
-    """Build server-owned fact ledger from selected cards with blind-hiring redaction.
+def _build_safe_projection(cards: list, blind_hiring: bool = False) -> dict:
+    """Build unified server-owned data projection from selected live cards.
 
-    Returns (ledger, identity_flagged). Each entry has id, kind, text, source_card_id.
+    In blind mode, assigns opaque card refs (C1, C2, ...) as source_card_id to prevent
+    canonical IDs from entering provider payloads or rendered previews. Screens all card
+    fields (title, summary, metrics, evidence) with _IDENTITY_RE under blind_hiring=True.
+
+    Returns dict with: fact_ledger, selected_cards, personal_facts, safe_titles,
+    has_usable_facts, any_redacted, missing_info_additions, _provenance.
+    _provenance is server-internal only (opaque_ref → canonical_id) and must not be serialized.
     """
-    ledger: list[dict] = []
-    identity_flagged = False
+    fact_ledger: list[dict] = []
+    any_redacted = False
+    card_counter = 0
+    provenance: dict[str, str] = {}
     n = 0
     for c in cards:
-        if blind_hiring and bool(_IDENTITY_RE.search(f"{c.title} {c.summary or ''}")):
-            identity_flagged = True
-            continue
-        n += 1
-        ledger.append({"id": f"F{n}", "kind": "activity", "text": c.title, "source_card_id": c.id})
-        if c.summary:
-            n += 1
-            ledger.append(
-                {
-                    "id": f"F{n}",
-                    "kind": "summary",
-                    "text": c.summary[:100],
-                    "source_card_id": c.id,
-                }
-            )
+        title_text = c.title or ""
+        summary_text = c.summary or ""
+        title_flagged = blind_hiring and bool(_IDENTITY_RE.search(title_text))
+        summary_flagged = blind_hiring and bool(_IDENTITY_RE.search(summary_text))
+        if title_flagged:
+            any_redacted = True
+        if summary_flagged:
+            any_redacted = True
+        safe_metrics: list[str] = []
         for m in list(c.metrics or [])[:2]:
-            n += 1
-            ledger.append({"id": f"F{n}", "kind": "metric", "text": str(m), "source_card_id": c.id})
+            m_text = str(m)
+            if blind_hiring and bool(_IDENTITY_RE.search(m_text)):
+                any_redacted = True
+            else:
+                safe_metrics.append(m_text)
+        safe_urls: list[str] = []
         for ev in list(c.evidence or [])[:2]:
             url = (
                 ev.url
@@ -420,11 +426,143 @@ def _build_fact_ledger(cards: list, blind_hiring: bool = False) -> tuple[list[di
                 else (ev.get("url", "") if isinstance(ev, dict) else "")
             )
             if url:
-                n += 1
-                ledger.append(
-                    {"id": f"F{n}", "kind": "evidence", "text": url, "source_card_id": c.id}
-                )
-    return ledger, identity_flagged
+                if blind_hiring and bool(_IDENTITY_RE.search(url)):
+                    any_redacted = True
+                else:
+                    safe_urls.append(url)
+        has_clean_title = not title_flagged and bool(title_text)
+        has_clean_summary = not summary_flagged and bool(summary_text)
+        card_has_usable = (
+            has_clean_title or has_clean_summary or bool(safe_metrics) or bool(safe_urls)
+        )
+        if not card_has_usable:
+            continue
+        card_counter += 1
+        card_ref = f"C{card_counter}" if blind_hiring else c.id
+        if blind_hiring:
+            provenance[card_ref] = c.id
+        # Activity entry: safe title, or opaque display label when title was redacted.
+        activity_text = title_text if has_clean_title else f"Evidence {card_ref}"
+        n += 1
+        fact_ledger.append(
+            {"id": f"F{n}", "kind": "activity", "text": activity_text, "source_card_id": card_ref}
+        )
+        if has_clean_summary:
+            n += 1
+            fact_ledger.append(
+                {
+                    "id": f"F{n}",
+                    "kind": "summary",
+                    "text": summary_text[:100],
+                    "source_card_id": card_ref,
+                }
+            )
+        for m_text in safe_metrics:
+            n += 1
+            fact_ledger.append(
+                {"id": f"F{n}", "kind": "metric", "text": m_text, "source_card_id": card_ref}
+            )
+        for url in safe_urls:
+            n += 1
+            fact_ledger.append(
+                {"id": f"F{n}", "kind": "evidence", "text": url, "source_card_id": card_ref}
+            )
+    has_usable_facts = bool(fact_ledger)
+    personal_facts = _ledger_to_personal_facts(fact_ledger)
+    selected_cards = _ledger_to_selected_cards(fact_ledger)
+    safe_titles = [e["text"] for e in fact_ledger if e["kind"] == "activity"]
+    missing_info_additions: list[dict] = []
+    if blind_hiring:
+        missing_info_additions.append(
+            {
+                "code": "BLIND_HIRING_REVIEW",
+                "message": "Review output to confirm it meets blind-hiring requirements.",
+            }
+        )
+        if any_redacted:
+            missing_info_additions.append(
+                {
+                    "code": "BLIND_HIRING_PERSONAL_IDENTIFIERS",
+                    "message": (
+                        "Card content contains education/background identifiers "
+                        "that were excluded from the blind-hiring preview."
+                    ),
+                }
+            )
+    return {
+        "fact_ledger": fact_ledger,
+        "selected_cards": selected_cards,
+        "personal_facts": personal_facts,
+        "safe_titles": safe_titles,
+        "has_usable_facts": has_usable_facts,
+        "any_redacted": any_redacted,
+        "missing_info_additions": missing_info_additions,
+        "_provenance": provenance,
+    }
+
+
+def _sanitize_advisory(advisory: dict, blind_hiring: bool) -> tuple[dict, list[dict]]:
+    """Sanitize all provider-derived advisory strings for blind-hiring compliance.
+
+    Returns (safe_advisory_dict, new_missing_info_items_to_append).
+    When blind_hiring is False, returns advisory fields normalised but unchanged.
+    """
+    raw_missing = [
+        m for m in (advisory.get("missing_info") or []) if isinstance(m, dict) and "code" in m
+    ]
+    raw_guidance = [g for g in (advisory.get("ai_guidance") or []) if isinstance(g, str)]
+    if not blind_hiring:
+        return {
+            "question_intent": str(advisory.get("question_intent") or ""),
+            "competency_target": str(advisory.get("competency_target") or ""),
+            "missing_info": raw_missing,
+            "ai_guidance": raw_guidance,
+        }, []
+    adv_redacted = False
+    new_warnings: list[dict] = []
+    question_intent = str(advisory.get("question_intent") or "")
+    if _IDENTITY_RE.search(question_intent):
+        question_intent = "Question interpretation withheld under blind-hiring policy."
+        adv_redacted = True
+    competency_target = str(advisory.get("competency_target") or "")
+    if _IDENTITY_RE.search(competency_target):
+        competency_target = "Competency interpretation withheld under blind-hiring policy."
+        adv_redacted = True
+    safe_missing: list[dict] = []
+    for mi in raw_missing:
+        if _IDENTITY_RE.search(mi.get("message", "")):
+            safe_missing.append(
+                {"code": mi["code"], "message": "Content withheld under blind-hiring policy."}
+            )
+            adv_redacted = True
+        else:
+            safe_missing.append(mi)
+    guidance_clean = [g for g in raw_guidance if not _IDENTITY_RE.search(g)]
+    if len(guidance_clean) < len(raw_guidance):
+        new_warnings.append(
+            {
+                "code": "BLIND_HIRING_GUIDANCE_REDACTED",
+                "message": (
+                    "Some AI guidance contained excluded background identifiers and was withheld."
+                ),
+            }
+        )
+    if adv_redacted:
+        new_warnings.append(
+            {
+                "code": "BLIND_HIRING_ADVISORY_REDACTED",
+                "message": (
+                    "Some AI advisory content contained excluded background "
+                    "identifiers and was withheld."
+                ),
+            }
+        )
+    return {
+        "question_intent": question_intent,
+        "competency_target": competency_target,
+        "missing_info": safe_missing,
+        "ai_guidance": guidance_clean,
+    }, new_warnings
 
 
 def _build_target_context_used(tc: dict) -> list[str]:
@@ -460,7 +598,11 @@ def _compose_answer_draft(output_type: str, safe_titles: list[str], tc: dict) ->
             f"My experience with {card_titles} demonstrates capabilities relevant to this role."
         )
     q_intro = f'Regarding "{question[:80]}": ' if question else ""
-    comp_str = f" This reflects {competency}." if competency else ""
+    blind_hiring = bool(tc.get("blind_hiring", False))
+    if blind_hiring and competency and bool(_IDENTITY_RE.search(competency)):
+        comp_str = ""
+    else:
+        comp_str = f" This reflects {competency}." if competency else ""
     return (
         f"{q_intro}Through my work on {card_titles}, "
         f"I developed the relevant capabilities.{comp_str}"
@@ -828,44 +970,25 @@ def _ledger_to_selected_cards(ledger: list[dict]) -> list[dict]:
     return result
 
 
-def _mock_application_preview(output_type: str, cards: list, target_context: dict) -> dict:
+def _mock_application_preview(output_type: str, projection: dict, target_context: dict) -> dict:
     question = target_context.get("question", "")
     competency = target_context.get("competency", "")
     char_limit = target_context.get("character_limit")
-    blind_hiring = bool(target_context.get("blind_hiring", False))
 
-    fact_ledger, identity_flagged = _build_fact_ledger(cards, blind_hiring)
-    personal_facts = _ledger_to_personal_facts(fact_ledger)
+    fact_ledger = projection["fact_ledger"]
+    selected_cards_info = projection["selected_cards"]
+    personal_facts = projection["personal_facts"]
+    safe_titles = projection["safe_titles"]
+    missing_info: list[dict] = list(projection["missing_info_additions"])
     target_context_used = _build_target_context_used(target_context)
-    selected_cards_info = _ledger_to_selected_cards(fact_ledger)
     selected_facts = [e["id"] for e in fact_ledger]
 
     question_intent = (
         f"Assessing: {question[:100]}" if output_type == "application_answer" and question else ""
     )
     competency_target = competency
-
-    missing_info: list[dict] = []
     assumptions: list[str] = []
-    if blind_hiring:
-        missing_info.append(
-            {
-                "code": "BLIND_HIRING_REVIEW",
-                "message": "Review output to confirm it meets blind-hiring requirements.",
-            }
-        )
-    if identity_flagged:
-        missing_info.append(
-            {
-                "code": "BLIND_HIRING_PERSONAL_IDENTIFIERS",
-                "message": (
-                    "Card title or summary contains education/background identifiers "
-                    "that were excluded from the blind-hiring preview."
-                ),
-            }
-        )
 
-    safe_titles = [e["text"] for e in fact_ledger if e["kind"] == "activity"]
     draft = _compose_answer_draft(output_type, safe_titles, target_context)
 
     if char_limit and len(draft) > char_limit:
@@ -939,15 +1062,27 @@ def api_studio_application_preview():
     except Exception:
         can_try_llm = False
 
-    # Build fact ledger before any LLM call to prevent identity text from reaching provider.
     _blind = bool(target_context.get("blind_hiring", False))
-    _fact_ledger, _id_flagged = _build_fact_ledger(cards, _blind)
+    projection = _build_safe_projection(cards, _blind)
 
-    if can_try_llm and not _id_flagged:
+    if _blind and not projection["has_usable_facts"]:
+        return jsonify(
+            {
+                "ok": False,
+                "error": (
+                    "All submitted cards were excluded under blind-hiring policy. "
+                    "Submit cards without education or background identifiers."
+                ),
+            }
+        ), 422
+
+    if can_try_llm:
         try:
             from scripts.llm import application_preview_llm
 
-            llm_result = application_preview_llm(output_type, _fact_ledger, target_context)
+            llm_result = application_preview_llm(
+                output_type, projection["fact_ledger"], target_context
+            )
         except Exception as exc:
             try:
                 from scripts.llm import _classify_exc
@@ -957,77 +1092,58 @@ def api_studio_application_preview():
                 fallback_reason = "provider_error"
         else:
             advisory = llm_result.get("advisory", {})
-            _valid_ids_set = {e["id"] for e in _fact_ledger}
+            _valid_ids_set = {e["id"] for e in projection["fact_ledger"]}
             raw_ids = advisory.get("selected_fact_ids") or []
             _filtered_ids = [fid for fid in raw_ids if fid in _valid_ids_set]
             if not _filtered_ids:
-                # No valid advisory IDs → use all ledger facts.
-                sel_ids = [e["id"] for e in _fact_ledger]
+                sel_ids = [e["id"] for e in projection["fact_ledger"]]
             else:
-                # Expand selection to include the activity fact of each represented card
-                # so selected_facts accurately reflects every factual string in the draft.
+                # Expand selection to include the activity fact of each represented card.
                 _sel_card_ids = {
-                    e["source_card_id"] for e in _fact_ledger if e["id"] in set(_filtered_ids)
+                    e["source_card_id"]
+                    for e in projection["fact_ledger"]
+                    if e["id"] in set(_filtered_ids)
                 }
                 _expanded = set(_filtered_ids) | {
                     e["id"]
-                    for e in _fact_ledger
+                    for e in projection["fact_ledger"]
                     if e["kind"] == "activity" and e["source_card_id"] in _sel_card_ids
                 }
-                sel_ids = [e["id"] for e in _fact_ledger if e["id"] in _expanded]
-            sel_ledger = [e for e in _fact_ledger if e["id"] in set(sel_ids)]
+                sel_ids = [e["id"] for e in projection["fact_ledger"] if e["id"] in _expanded]
+            sel_ledger = [e for e in projection["fact_ledger"] if e["id"] in set(sel_ids)]
             _safe_titles = [e["text"] for e in sel_ledger if e["kind"] == "activity"]
             if not _safe_titles:
-                _safe_titles = [e["text"] for e in _fact_ledger if e["kind"] == "activity"]
+                _safe_titles = [
+                    e["text"] for e in projection["fact_ledger"] if e["kind"] == "activity"
+                ]
             _char_limit = target_context.get("character_limit")
             _draft = _compose_answer_draft(output_type, _safe_titles, target_context)
             _assumptions: list[str] = []
             if _char_limit and len(_draft) > _char_limit:
                 _draft = _draft[:_char_limit]
                 _assumptions.append("Draft truncated to fit the character limit.")
-            _ai_guidance = [g for g in (advisory.get("ai_guidance") or []) if isinstance(g, str)]
-            _missing = [
-                m
-                for m in (advisory.get("missing_info") or [])
-                if isinstance(m, dict) and "code" in m
-            ]
-            if _blind:
-                _clean_guidance = [g for g in _ai_guidance if not _IDENTITY_RE.search(g)]
-                if len(_clean_guidance) < len(_ai_guidance):
-                    _missing.append(
-                        {
-                            "code": "BLIND_HIRING_GUIDANCE_REDACTED",
-                            "message": (
-                                "Some AI guidance contained excluded background "
-                                "identifiers and was withheld."
-                            ),
-                        }
-                    )
-                _ai_guidance = _clean_guidance
-            if _id_flagged:
-                _missing.append(
-                    {
-                        "code": "BLIND_HIRING_PERSONAL_IDENTIFIERS",
-                        "message": (
-                            "Card title or summary contains education/background "
-                            "identifiers that were excluded from the blind-hiring preview."
-                        ),
-                    }
-                )
+            safe_adv, adv_warnings = _sanitize_advisory(advisory, _blind)
+            _missing = (
+                list(safe_adv["missing_info"])
+                + list(projection["missing_info_additions"])
+                + adv_warnings
+            )
             preview = {
                 "output_type": output_type,
-                "fact_ledger": _fact_ledger,
+                "fact_ledger": projection["fact_ledger"],
                 "selected_facts": sel_ids,
-                "question_intent": str(advisory.get("question_intent") or ""),
-                "competency_target": str(advisory.get("competency_target") or ""),
-                "selected_cards": _ledger_to_selected_cards(sel_ledger or _fact_ledger),
-                "personal_facts": _ledger_to_personal_facts(_fact_ledger),
+                "question_intent": safe_adv["question_intent"],
+                "competency_target": safe_adv["competency_target"],
+                "selected_cards": _ledger_to_selected_cards(
+                    sel_ledger or projection["fact_ledger"]
+                ),
+                "personal_facts": _ledger_to_personal_facts(projection["fact_ledger"]),
                 "target_context_used": _build_target_context_used(target_context),
                 "assumptions": _assumptions,
                 "missing_info": _missing,
                 "answer_draft": _draft,
                 "draft_provenance": "server_composed",
-                "ai_guidance": _ai_guidance,
+                "ai_guidance": safe_adv["ai_guidance"],
                 "character_count": len(_draft),
                 "character_limit": _char_limit,
                 "within_limit": (len(_draft) <= _char_limit) if _char_limit else None,
@@ -1035,13 +1151,10 @@ def api_studio_application_preview():
                 "fallback_reason": None,
             }
             return jsonify({"ok": True, "preview": preview})
-    elif can_try_llm and _id_flagged:
-        # Blind-hiring: identity content must not reach the provider; fall back to mock.
-        fallback_reason = None
     else:
         fallback_reason = "not_configured"
 
-    preview = _mock_application_preview(output_type, cards, target_context)
+    preview = _mock_application_preview(output_type, projection, target_context)
     preview["refine_source"] = "mock"
     preview["fallback_reason"] = fallback_reason
     return jsonify({"ok": True, "preview": preview})

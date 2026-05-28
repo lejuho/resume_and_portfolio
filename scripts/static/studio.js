@@ -303,7 +303,7 @@ async function loadAppCards() {
   try {
     const resp = await fetch("/api/cards");
     const data = await resp.json();
-    const live = (data.cards || []).filter(c => c.status === "live");
+    const live = (Array.isArray(data) ? data : []).filter(c => c.status === "live");
     container.innerHTML = "";
     if (!live.length) {
       container.innerHTML = '<span class="placeholder">No live cards found. Mark cards as Live in Dashboard first.</span>';
