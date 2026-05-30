@@ -1,6 +1,7 @@
 output/
 .cache/
 .env
+.review/**/.read-counter
 .env.local
 .env.*.local
 .build/

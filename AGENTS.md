@@ -332,6 +332,25 @@ PASS | NEEDS_REVIEW
 
 Communication bridge가 명시화되는 지점. Cycle Reviewer가 사후에 "Advisor가 잡았는데 Executor가 무시한 게 정당했는가"를 verify 가능. 무시 자체는 anti-pattern이 아니지만, **이유 없는 무시**는 anti-pattern.
 
+### Cross-Cycle 중복 금지 (Cycle 24 추가)
+
+**Advisor-feedback 파일은 현재 cycle의 step 내용만 담는다.** 다른 cycle에서 수행한 Advisor 호출의 결과를 현재 cycle 디렉터리에 복사하거나 "Session Cross-Reference"로 기록하는 것은 금지.
+
+- 다른 cycle의 advisor 결과를 참조하려면 경로 링크(`see .review/cycle-N/advisor-feedback/step-NNN.md`)만 기재.
+- 파일 heading은 `# Advisor Feedback: Cycle N Step-NNN — <요약>` 형식을 따르며, N은 해당 파일이 있는 디렉터리의 cycle 번호와 일치해야 한다.
+- "Session Cross-Reference"가 포함된 heading은 hygiene check에서 실패 처리된다.
+
+### Merge 전 Staging 체크리스트 (Cycle 24 추가)
+
+cycle 완료 후 `git add` 전에 아래 항목을 확인:
+
+| 제외 대상 | 이유 |
+|-----------|------|
+| `.review/**/.read-counter` | 로컬 세션 훅 아티팩트; `.gitignore`로 자동 제외 |
+| `.agents/`, `skills-lock.json` | 로컬 플러그인/스킬 파일; 프로젝트 소스가 아님 |
+| 다른 cycle의 step 파일이 현재 cycle 디렉터리에 있는 경우 | Cross-cycle 중복; 삭제 후 올바른 cycle 디렉터리에 있는지 확인 |
+| `review-vN.md`에 이미 append된 RESOLVED 섹션 재수정 | append-only 규칙 위반 |
+
 ---
 
 ## Issue-Velocity Cap
