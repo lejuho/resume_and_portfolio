@@ -296,6 +296,7 @@ function _esc(str) {
 
 let _appCards = [];
 let _appDraftText = "";
+let _appLastPreview = null;
 
 async function loadAppCards() {
   const container = document.getElementById("st-app-card-selector");
@@ -390,6 +391,7 @@ async function generateAppPreview() {
 }
 
 function renderAppPreview(preview) {
+  _appLastPreview = preview;
   document.getElementById("st-app-result").hidden = false;
 
   _renderGroundingList("st-app-facts-section", "st-app-facts-list", preview.personal_facts || []);
@@ -452,6 +454,8 @@ function renderAppPreview(preview) {
 
   const copyBtn = document.getElementById("st-app-copy-btn");
   if (copyBtn) copyBtn.hidden = false;
+  const exportBtn = document.getElementById("st-app-export-btn");
+  if (exportBtn) exportBtn.hidden = false;
 
   const fallbackEl = document.getElementById("st-app-fallback-notice");
   if (fallbackEl) {
@@ -478,7 +482,70 @@ async function copyAppDraft() {
   } catch (_) {}
 }
 
+function _buildHandoffPacket(preview) {
+  const lines = ["=== Application Writing Handoff ===", ""];
+  lines.push(`Output type: ${preview.output_type || ""}`);
+  const tc = preview.target_context_used || [];
+  if (tc.length) {
+    lines.push("", "Target context used:");
+    for (const item of tc) lines.push(`  • ${item}`);
+  }
+  lines.push("", "=== Verified Draft ===", preview.answer_draft || "");
+  const sc = preview.selected_cards || [];
+  if (sc.length) {
+    lines.push("", "=== Evidence Used ===");
+    for (const c of sc) {
+      lines.push(`  ${c.display_title || c.title || ""}: ${c.selection_reason || ""}`);
+    }
+  }
+  const warnings = preview.warnings || [];
+  if (warnings.length) {
+    lines.push("", "=== Warnings ===");
+    for (const w of warnings) lines.push(`  • ${w}`);
+  }
+  if (preview.fallback_reason) lines.push("", `Source fallback: ${preview.fallback_reason}`);
+  if (preview.refine_source) lines.push(`Refine source: ${preview.refine_source}`);
+  const guidance = preview.ai_guidance || [];
+  if (guidance.length) {
+    lines.push("", "=== ADVISORY (AI-generated, verify — not part of verified draft) ===");
+    for (const g of guidance) lines.push(`  • ${g}`);
+  }
+  lines.push("", "---", "This packet was generated from an Application Writing preview and is not stored in Career Memory.");
+  return lines.join("\n");
+}
+
+async function exportAppPacket() {
+  if (!_appLastPreview) return;
+  const packet = _buildHandoffPacket(_appLastPreview);
+  const outEl = document.getElementById("st-app-export-out");
+  if (outEl) { outEl.textContent = packet; outEl.style.display = "block"; }
+  try {
+    const blob = new Blob([packet], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "application-handoff.txt";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+  } catch (_) {
+    try { await navigator.clipboard.writeText(packet); } catch (_2) {}
+  }
+}
+
+function _resetAppHandoffState() {
+  _appLastPreview = null;
+  _appDraftText = "";
+  const copyBtn = document.getElementById("st-app-copy-btn");
+  if (copyBtn) copyBtn.hidden = true;
+  const exportBtn = document.getElementById("st-app-export-btn");
+  if (exportBtn) exportBtn.hidden = true;
+  const exportOut = document.getElementById("st-app-export-out");
+  if (exportOut) { exportOut.textContent = ""; exportOut.style.display = "none"; }
+}
+
 function _showAppError(msg) {
+  _resetAppHandoffState();
   const result = document.getElementById("st-app-result");
   if (result) result.hidden = false;
   const draftEl = document.getElementById("st-app-draft-text");

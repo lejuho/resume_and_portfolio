@@ -97,6 +97,12 @@
     #st-app-copy-btn:hover { background: #546e7a; }
     #st-app-fallback-notice { margin-top: 8px; font-size: .78rem; color: #795548;
                               background: #fff8e1; border: 1px solid #ffe082; border-radius: 4px; padding: 6px 10px; }
+    #st-app-export-btn { background: #1565c0; color: #fff; font-size: .82rem;
+                         padding: 6px 14px; margin-top: 8px; margin-left: 8px; }
+    #st-app-export-btn:hover { background: #0d47a1; }
+    #st-app-export-out { margin-top: 8px; background: #f5f5f5; border: 1px solid #ccc;
+                         border-radius: 4px; padding: 10px 12px; font-size: .78rem;
+                         white-space: pre-wrap; word-break: break-word; display: none; }
   </style>
 </head>
 <body>
@@ -241,7 +247,10 @@
             <div class="app-draft-box" id="st-app-draft-text"></div>
             <div id="st-app-char-status" class="app-char-status"></div>
             <button id="st-app-copy-btn" onclick="copyAppDraft()" hidden>Copy Verified draft to clipboard</button>
+            <button id="st-app-export-btn" onclick="exportAppPacket()" hidden>Export handoff packet</button>
             <small id="st-app-copy-note" style="display:block;margin-top:4px;color:#888">Only the Verified draft text above is copied — AI Guidance is not included.</small>
+            <small style="display:block;margin-top:2px;color:#888">Export includes draft, evidence summary, and advisory guidance clearly labeled.</small>
+            <pre id="st-app-export-out"></pre>
             <div id="st-app-fallback-notice" hidden></div>
             <div id="st-app-refine-source" style="font-size:.75rem;color:#888;margin-top:4px"></div>
           </div>

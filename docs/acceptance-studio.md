@@ -100,6 +100,7 @@ uv run pcli dashboard --port 5097
 | 11 | No card created | Generate a cover letter or answer preview. | Card count in Dashboard does not increase. |  |
 | 12 | Copy action | Click Copy to clipboard after generating. | Verified draft text is copied; guidance section text is not included; button briefly shows "Copied!". |  |
 | 13 | Refine fallback reason | Run without a provider; generate a Career Memory refine. | `Source: Mock — not_configured` appears below the refine preview. |  |
+| 14 | Export handoff packet | Generate a preview; click "Export handoff packet". | A plain-text packet is downloaded (or copied as fallback) containing: output type, target context used, verified draft, evidence summary using safe display labels (opaque refs in blind-hiring mode), and AI guidance clearly labeled "ADVISORY". The existing "Copy Verified draft" button behavior is unchanged. No new card is created. Before preview generation the export button is hidden. |  |
 
 ## Sign-Off
 
