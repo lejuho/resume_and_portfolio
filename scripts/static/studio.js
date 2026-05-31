@@ -482,15 +482,42 @@ async function copyAppDraft() {
   } catch (_) {}
 }
 
+function _packetTitle(output_type) {
+  if (output_type === "cover_letter") return "Application Writing Handoff — Cover Letter";
+  if (output_type === "application_answer") return "Application Writing Handoff — Application Answer";
+  return "Application Writing Handoff";
+}
+
+function _packetSafeText(item) {
+  return typeof item === "string" ? item : String(item);
+}
+
 function _buildHandoffPacket(preview) {
-  const lines = ["=== Application Writing Handoff ===", ""];
-  lines.push(`Output type: ${preview.output_type || ""}`);
+  const lines = [`=== ${_packetTitle(preview.output_type)} ===`, ""];
   const tc = preview.target_context_used || [];
   if (tc.length) {
-    lines.push("", "Target context used:");
-    for (const item of tc) lines.push(`  • ${item}`);
+    lines.push("=== Target Context ===");
+    for (const item of tc) lines.push(`  • ${_packetSafeText(item)}`);
+    lines.push("");
   }
-  lines.push("", "=== Verified Draft ===", preview.answer_draft || "");
+  lines.push("=== Verified Draft ===", preview.answer_draft || "");
+
+  // Draft Metadata — emitted only when at least one field is present.
+  const meta = [];
+  if (preview.draft_provenance) meta.push(`  Provenance: ${preview.draft_provenance}`);
+  if (preview.refine_source) meta.push(`  Source: ${preview.refine_source}`);
+  if (preview.fallback_reason) meta.push(`  Fallback reason: ${preview.fallback_reason}`);
+  if (preview.character_limit) {
+    meta.push(`  Character count: ${preview.character_count || 0}`);
+    meta.push(`  Character limit: ${preview.character_limit}`);
+  } else if (preview.character_count) {
+    meta.push(`  Character count: ${preview.character_count}`);
+  }
+  if (meta.length) {
+    lines.push("", "=== Draft Metadata ===");
+    for (const m of meta) lines.push(m);
+  }
+
   const sc = preview.selected_cards || [];
   if (sc.length) {
     lines.push("", "=== Evidence Used ===");
@@ -501,14 +528,12 @@ function _buildHandoffPacket(preview) {
   const warnings = preview.warnings || [];
   if (warnings.length) {
     lines.push("", "=== Warnings ===");
-    for (const w of warnings) lines.push(`  • ${w}`);
+    for (const w of warnings) lines.push(`  • ${_packetSafeText(w)}`);
   }
-  if (preview.fallback_reason) lines.push("", `Source fallback: ${preview.fallback_reason}`);
-  if (preview.refine_source) lines.push(`Refine source: ${preview.refine_source}`);
   const guidance = preview.ai_guidance || [];
   if (guidance.length) {
     lines.push("", "=== ADVISORY (AI-generated, verify — not part of verified draft) ===");
-    for (const g of guidance) lines.push(`  • ${g}`);
+    for (const g of guidance) lines.push(`  • ${_packetSafeText(g)}`);
   }
   lines.push("", "---", "This packet was generated from an Application Writing preview and is not stored in Career Memory.");
   return lines.join("\n");
