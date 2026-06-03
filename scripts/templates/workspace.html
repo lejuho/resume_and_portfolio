@@ -10,6 +10,7 @@
       --ws-text: #1a1a2e;
       --ws-text-muted: #888;
       --ws-text-secondary: #555;
+      --ws-coverage-muted: #4a5568;
       --ws-accent: #4a90d9;
       --ws-accent-tint: rgba(74, 144, 217, .07);
       --ws-accent-border: rgba(74, 144, 217, .2);
@@ -19,8 +20,47 @@
       --ws-preview-bg: #f8f8ff;
       --ws-border: rgba(0, 0, 0, .08);
       --ws-border-thin: rgba(0, 0, 0, .06);
+      --ws-border-strong: rgba(0, 0, 0, .12);
       --ws-radius-md: 8px;
       --ws-radius-lg: 12px;
+    }
+    :root[data-ws-theme="dark"] {
+      --ws-bg: #0f1117;
+      --ws-surface: #1a1b26;
+      --ws-text: #e8e8f0;
+      --ws-text-muted: #888;
+      --ws-text-secondary: #a0a0b0;
+      --ws-coverage-muted: #9aa5b4;
+      --ws-accent: #6aa8e8;
+      --ws-accent-tint: rgba(106, 168, 232, .12);
+      --ws-accent-border: rgba(106, 168, 232, .3);
+      --ws-accent-hover: #7ab8f0;
+      --ws-disabled: #555;
+      --ws-input-bg: #14151f;
+      --ws-preview-bg: #12131c;
+      --ws-border: rgba(255, 255, 255, .08);
+      --ws-border-thin: rgba(255, 255, 255, .06);
+      --ws-border-strong: rgba(255, 255, 255, .15);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-ws-theme="light"]) {
+        --ws-bg: #0f1117;
+        --ws-surface: #1a1b26;
+        --ws-text: #e8e8f0;
+        --ws-text-muted: #888;
+        --ws-text-secondary: #a0a0b0;
+        --ws-coverage-muted: #9aa5b4;
+        --ws-accent: #6aa8e8;
+        --ws-accent-tint: rgba(106, 168, 232, .12);
+        --ws-accent-border: rgba(106, 168, 232, .3);
+        --ws-accent-hover: #7ab8f0;
+        --ws-disabled: #555;
+        --ws-input-bg: #14151f;
+        --ws-preview-bg: #12131c;
+        --ws-border: rgba(255, 255, 255, .08);
+        --ws-border-thin: rgba(255, 255, 255, .06);
+        --ws-border-strong: rgba(255, 255, 255, .15);
+      }
     }
     *, *::before, *::after { box-sizing: border-box; }
     body { font-family: system-ui, sans-serif; margin: 0; background: var(--ws-bg); color: var(--ws-text); }
@@ -29,6 +69,13 @@
     header strong { font-size: .95rem; }
     header a { color: var(--ws-accent); font-size: .82rem; text-decoration: none; }
     header a:hover { text-decoration: underline; }
+    .ws-header-spacer { flex: 1; }
+    .ws-theme-toggle { background: var(--ws-input-bg); color: var(--ws-text);
+                       border: 1px solid var(--ws-border-strong);
+                       border-radius: var(--ws-radius-md); padding: 5px 10px;
+                       font-size: .78rem; cursor: pointer; }
+    .ws-theme-toggle:hover { border-color: var(--ws-accent-border); color: var(--ws-accent); }
+    .ws-theme-toggle:focus-visible { outline: 2px solid var(--ws-accent); outline-offset: 2px; }
     .ws-layout { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 48px); }
     .ws-pane { overflow-y: auto; padding: 16px; }
     .ws-pane-left { background: var(--ws-surface); border-right: 1px solid var(--ws-border); }
@@ -36,10 +83,14 @@
     .ws-pane-title { font-size: .7rem; font-weight: 500; letter-spacing: .03em;
                      color: var(--ws-text-muted); margin: 0 0 12px; }
     .ws-card-item { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0;
-                    border-bottom: 1px solid var(--ws-border-thin); font-size: .85rem; }
+                    border-bottom: 1px solid var(--ws-border-thin); font-size: .85rem;
+                    transition: background .12s; }
     .ws-card-item:last-child { border-bottom: none; }
+    .ws-card-item:hover { background: var(--ws-accent-tint); }
     .ws-card-item.ws-card-selected { background: var(--ws-accent-tint);
                                      border-color: var(--ws-accent-border); }
+    .ws-card-item input[type="checkbox"]:focus-visible { outline: 2px solid var(--ws-accent);
+                                                         outline-offset: 2px; }
     .ws-card-body { display: flex; flex-direction: column; gap: 2px; cursor: pointer; flex: 1; }
     .ws-card-pill { display: inline-block; font-size: .68rem; font-weight: 500;
                     background: var(--ws-accent-tint); color: var(--ws-accent);
@@ -57,7 +108,7 @@
     .ws-field label { display: block; font-size: .72rem; color: var(--ws-text-muted);
                       letter-spacing: .02em; margin-bottom: 3px; }
     .ws-field input, .ws-field textarea, .ws-field select {
-      width: 100%; font-size: .88rem; border: 1px solid rgba(0, 0, 0, .12);
+      width: 100%; font-size: .88rem; border: 1px solid var(--ws-border-strong);
       border-radius: var(--ws-radius-md); padding: 6px 10px; background: var(--ws-input-bg); color: var(--ws-text); }
     .ws-field textarea { resize: vertical; }
     .ws-output-row { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
@@ -65,7 +116,7 @@
                            font-size: .85rem; cursor: pointer; }
     .ws-coverage-panel { border-radius: var(--ws-radius-md); background: var(--ws-accent-tint);
                          border: 1px solid var(--ws-accent-border); padding: 10px 14px;
-                         font-size: .82rem; color: #4a5568; }
+                         font-size: .82rem; color: var(--ws-coverage-muted); }
     .ws-coverage-label { font-size: .7rem; font-weight: 500; letter-spacing: .03em;
                          color: var(--ws-text-muted); margin-bottom: 4px; }
     .ws-coverage-value { font-size: 1.25rem; font-weight: 500; color: var(--ws-accent); }
@@ -87,6 +138,8 @@
     <strong>Workspace</strong>
     <a href="/dashboard">← Dashboard</a>
     <a href="/studio">Studio</a>
+    <span class="ws-header-spacer"></span>
+    <button class="ws-theme-toggle" id="ws-theme-toggle" type="button" aria-pressed="false" onclick="toggleWorkspaceTheme()">Dark mode</button>
   </header>
   <div class="ws-layout">
 

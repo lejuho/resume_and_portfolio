@@ -16,6 +16,51 @@
       .replace(/"/g, "&quot;");
   }
 
+  const WS_THEME_KEY = "workspace-theme";
+
+  function _wsStoredTheme() {
+    try {
+      const stored = window.localStorage.getItem(WS_THEME_KEY);
+      return stored === "dark" || stored === "light" ? stored : "";
+    } catch (err) {
+      return "";
+    }
+  }
+
+  function _wsSystemTheme() {
+    if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      return "dark";
+    }
+    return "light";
+  }
+
+  function _wsApplyTheme(theme) {
+    const selected = theme === "dark" || theme === "light" ? theme : "";
+    const resolved = selected || _wsSystemTheme();
+    if (selected) {
+      document.documentElement.setAttribute("data-ws-theme", selected);
+    } else {
+      document.documentElement.removeAttribute("data-ws-theme");
+    }
+    const toggle = document.getElementById("ws-theme-toggle");
+    if (toggle) {
+      toggle.setAttribute("aria-pressed", resolved === "dark" ? "true" : "false");
+      toggle.textContent = resolved === "dark" ? "Light mode" : "Dark mode";
+    }
+  }
+
+  function toggleWorkspaceTheme() {
+    const current =
+      document.documentElement.getAttribute("data-ws-theme") || _wsSystemTheme();
+    const next = current === "dark" ? "light" : "dark";
+    try {
+      window.localStorage.setItem(WS_THEME_KEY, next);
+    } catch (err) {
+      // Theme still applies for this page when localStorage is unavailable.
+    }
+    _wsApplyTheme(next);
+  }
+
   async function loadWorkspaceCards() {
     const list = document.getElementById("ws-card-list");
     const countEl = document.getElementById("ws-card-count");
@@ -144,10 +189,15 @@
   // Expose for inline onclick handlers
   window._wsOnCardToggle = _wsOnCardToggle;
   window.generateWorkspacePreview = generateWorkspacePreview;
+  window.toggleWorkspaceTheme = toggleWorkspaceTheme;
 
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", loadWorkspaceCards);
+    document.addEventListener("DOMContentLoaded", () => {
+      _wsApplyTheme(_wsStoredTheme());
+      loadWorkspaceCards();
+    });
   } else {
+    _wsApplyTheme(_wsStoredTheme());
     loadWorkspaceCards();
   }
 })();

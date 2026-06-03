@@ -122,3 +122,25 @@ and would force another token pass later. OS-level dark mode is still small enou
 - No persistence/mutation:
   - Source search and existing route tests are sufficient; no database or filesystem integration
     test is required because this cycle must not add backend write behavior.
+
+---
+
+## User Amendment v1: Manual Theme Toggle
+
+The initial Cycle 29 plan scoped dark mode to OS preference only. User feedback after review:
+"다크모드 토글 버튼이 없어" ("there is no dark-mode toggle button"). Treat manual theme switching
+as expected UI behavior for this cycle.
+
+Additional scope:
+- Add a visible Workspace theme toggle button in the header.
+- Keep OS preference as the default when no manual choice exists.
+- Allow the toggle to switch between light and dark themes without backend calls.
+- Persist only the local browser preference, for example through `localStorage`; do not add server
+  persistence, card writes, provider behavior, or backend routes.
+- Preserve existing `/workspace`, `/studio`, `/api/cards` selector contracts.
+
+Additional tests:
+- Workspace HTML exposes a theme toggle button with a stable id.
+- Workspace JS defines theme apply/toggle helpers.
+- Workspace JS uses `localStorage` for browser-only theme preference.
+- Manual dark selector exists separately from the OS `prefers-color-scheme` block.
