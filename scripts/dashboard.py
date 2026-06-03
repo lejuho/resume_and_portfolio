@@ -740,6 +740,11 @@ def studio() -> str:
     return render_template("studio.html")
 
 
+@app.route("/workspace")
+def workspace() -> str:
+    return render_template("workspace.html")
+
+
 @app.route("/api/studio/ai-status")
 def api_studio_ai_status():
     try:

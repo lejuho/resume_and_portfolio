@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Workspace</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; margin: 0; background: #f7f8fa; color: #1a1a2e; }
+    header { background: #fff; border-bottom: 1px solid rgba(0,0,0,.08); padding: 0 24px;
+             height: 48px; display: flex; align-items: center; gap: 16px; }
+    header strong { font-size: .95rem; }
+    header a { color: #4a90d9; font-size: .82rem; text-decoration: none; }
+    header a:hover { text-decoration: underline; }
+    .ws-layout { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 48px); }
+    .ws-pane { overflow-y: auto; padding: 16px; }
+    .ws-pane-left { background: #fff; border-right: 1px solid rgba(0,0,0,.08); }
+    .ws-pane-right { background: #f7f8fa; }
+    .ws-pane-title { font-size: .7rem; font-weight: 600; letter-spacing: .03em;
+                     color: #888; margin: 0 0 12px; }
+    .ws-card-item { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0;
+                    border-bottom: 1px solid rgba(0,0,0,.06); font-size: .85rem; }
+    .ws-card-item:last-child { border-bottom: none; }
+    .ws-card-item label { display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
+    .ws-card-title { font-weight: 500; color: #1a1a2e; }
+    .ws-card-meta { font-size: .72rem; color: #888; }
+    .ws-empty { font-size: .83rem; color: #aaa; font-style: italic; padding: 8px 0; }
+    .ws-section { background: #fff; border: 1px solid rgba(0,0,0,.08); border-radius: 8px;
+                  padding: 14px 16px; margin-bottom: 12px; }
+    .ws-section h3 { font-size: .7rem; font-weight: 600; letter-spacing: .03em;
+                     color: #888; margin: 0 0 10px; }
+    .ws-field { margin-bottom: 10px; }
+    .ws-field label { display: block; font-size: .72rem; color: #888;
+                      letter-spacing: .02em; margin-bottom: 3px; }
+    .ws-field input, .ws-field textarea, .ws-field select {
+      width: 100%; font-size: .88rem; border: 1px solid rgba(0,0,0,.12);
+      border-radius: 8px; padding: 6px 10px; background: #fafafa; color: #1a1a2e; }
+    .ws-field textarea { resize: vertical; }
+    .ws-output-row { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+    .ws-output-row label { display: flex; gap: 5px; align-items: center;
+                           font-size: .85rem; cursor: pointer; }
+    .ws-coverage-panel { border-radius: 8px; background: rgba(74,144,217,.06);
+                         border: 1px solid rgba(74,144,217,.2); padding: 10px 14px;
+                         font-size: .82rem; color: #4a5568; }
+    .ws-coverage-label { font-size: .7rem; font-weight: 600; letter-spacing: .03em;
+                         color: #888; margin-bottom: 4px; }
+    .ws-coverage-value { font-size: 1.25rem; font-weight: 600; color: #4a90d9; }
+    .ws-coverage-gap { font-size: .78rem; color: #888; margin-top: 4px; }
+    button.ws-generate-btn { background: #4a90d9; color: #fff; border: none; border-radius: 8px;
+                              padding: 9px 20px; font-size: .88rem; cursor: pointer; width: 100%; }
+    button.ws-generate-btn:hover { background: #3a7fc7; }
+    button.ws-generate-btn:disabled { background: #aaa; cursor: default; }
+    #ws-preview-out { margin-top: 12px; background: #f8f8ff; border: 1px solid rgba(74,144,217,.25);
+                      border-radius: 8px; padding: 12px; font-size: .85rem; white-space: pre-wrap;
+                      display: none; }
+    #ws-card-count { font-size: .78rem; color: #4a90d9; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Workspace</strong>
+    <a href="/dashboard">← Dashboard</a>
+    <a href="/studio">Studio</a>
+  </header>
+  <div class="ws-layout">
+
+    <!-- Left pane: evidence cards -->
+    <div class="ws-pane ws-pane-left" id="ws-left-pane">
+      <p class="ws-pane-title">Evidence cards</p>
+      <div id="ws-card-count"></div>
+      <div id="ws-card-list" aria-label="evidence card list">
+        <p class="ws-empty">Loading cards…</p>
+      </div>
+    </div>
+
+    <!-- Right pane: target context, output, coverage, preview -->
+    <div class="ws-pane ws-pane-right" id="ws-right-pane">
+
+      <div class="ws-section" id="ws-target-section">
+        <h3>Target</h3>
+        <div class="ws-field">
+          <label for="ws-organization">Organization</label>
+          <input id="ws-organization" type="text" placeholder="e.g. Kakao, NinjaLabs" />
+        </div>
+        <div class="ws-field">
+          <label for="ws-role">Role</label>
+          <input id="ws-role" type="text" placeholder="e.g. Backend Engineer" />
+        </div>
+        <div class="ws-field">
+          <label for="ws-question">Question / prompt</label>
+          <textarea id="ws-question" rows="2" placeholder="e.g. Describe a technical challenge you solved."></textarea>
+        </div>
+        <div class="ws-field">
+          <label for="ws-competency">Competency focus</label>
+          <input id="ws-competency" type="text" placeholder="e.g. problem-solving, leadership" />
+        </div>
+        <div class="ws-field">
+          <label for="ws-jd">Job description (optional)</label>
+          <textarea id="ws-jd" rows="2" placeholder="Paste relevant JD text…"></textarea>
+        </div>
+        <div class="ws-output-row" id="ws-output-type">
+          <label><input type="radio" name="ws_output_type" value="application_answer" checked /> Application answer</label>
+          <label><input type="radio" name="ws_output_type" value="cover_letter" /> Cover letter</label>
+        </div>
+        <div class="ws-field">
+          <label for="ws-charlimit">Char limit</label>
+          <input id="ws-charlimit" type="number" min="1" max="5000" placeholder="e.g. 800" />
+        </div>
+        <label style="font-size:.85rem;display:flex;gap:6px;align-items:center;margin-bottom:10px">
+          <input id="ws-blind" type="checkbox" /> Blind hiring
+        </label>
+      </div>
+
+      <div class="ws-section" id="ws-coverage-section">
+        <h3>Coverage</h3>
+        <div class="ws-coverage-panel" id="ws-coverage-panel">
+          <div class="ws-coverage-label">Themes matched</div>
+          <div class="ws-coverage-value" id="ws-coverage-value">—</div>
+          <div class="ws-coverage-gap" id="ws-coverage-gap">Select cards and add a target to calculate coverage.</div>
+        </div>
+      </div>
+
+      <div class="ws-section" id="ws-preview-section">
+        <h3>Preview</h3>
+        <button class="ws-generate-btn" id="ws-generate-btn" onclick="generateWorkspacePreview()">Generate preview</button>
+        <pre id="ws-preview-out"></pre>
+      </div>
+
+    </div>
+  </div>
+  <script src="/static/workspace.js"></script>
+</body>
+</html>
