@@ -45,10 +45,14 @@
         if (mCount) parts.push(`${mCount} metric${mCount !== 1 ? "s" : ""}`);
         if (eCount) parts.push(`${eCount} evidence`);
         const meta = parts.length ? parts.join(" · ") : "no metrics or evidence";
+        const pill = card.type || "card";
+        const context = card.summary || "";
         div.innerHTML =
-          `<input type="checkbox" id="ws-card-${_esc(card.id)}" value="${_esc(card.id)}" onchange="_wsOnCardToggle()" />` +
-          `<label for="ws-card-${_esc(card.id)}">` +
+          `<input type="checkbox" id="ws-card-${_esc(card.id)}" value="${_esc(card.id)}" onchange="_wsOnCardToggle(this)" />` +
+          `<label class="ws-card-body" for="ws-card-${_esc(card.id)}">` +
+          `<span class="ws-card-pill">${_esc(pill)}</span>` +
           `<span class="ws-card-title">${_esc(card.title)}</span>` +
+          `<span class="ws-card-context">${_esc(context)}</span>` +
           `<span class="ws-card-meta">${_esc(meta)}</span>` +
           `</label>`;
         list.appendChild(div);
@@ -65,7 +69,12 @@
     return Array.from(checks).map((c) => c.value);
   }
 
-  function _wsOnCardToggle() {
+  function _wsOnCardToggle(cb) {
+    // Toggle selected class on the parent card item
+    if (cb) {
+      const item = cb.closest(".ws-card-item");
+      if (item) item.classList.toggle("ws-card-selected", cb.checked);
+    }
     const selected = _wsSelectedCardIds();
     const coverageGap = document.getElementById("ws-coverage-gap");
     if (coverageGap) {
