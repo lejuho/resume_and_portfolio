@@ -1,6 +1,6 @@
 # Career Studio Acceptance Evidence
 
-Status: execution checklist for Studio through Cycle 19 and future grounded drafting  
+Status: execution checklist for Studio, Application Writing (through Cycle 26), and Workspace (Cycles 27–30); last reviewed Cycle 31 audit (2026-06-05)
 Related requirements: `requirements-dashboard.md`  
 Related test specification: `docs/test-cases.md`
 
@@ -102,6 +102,61 @@ uv run pcli dashboard --port 5097
 | 13 | Refine fallback reason | Run without a provider; generate a Career Memory refine. | `Source: Mock — not_configured` appears below the refine preview. |  |
 | 14 | Export handoff packet | Generate a preview; click "Export handoff packet". | A plain-text packet is downloaded (or copied as fallback) containing: output type, target context used, verified draft, evidence summary using safe display labels (opaque refs in blind-hiring mode), and AI guidance clearly labeled "ADVISORY". The existing "Copy Verified draft" button behavior is unchanged. No new card is created. Before preview generation the export button is hidden. |  |
 
+## Application Writing Improvements (Cycles 22–23 Implemented)
+
+No additional manual acceptance flows are required for Cycles 22–23; they improved existing
+behavior (Studio UI smoke tests, selector metadata, empty/error labels, copy-button label
+consistency) without adding a new user-visible workflow. The automated regression suites in
+`tests/test_cycle22.py` and `tests/test_cycle23.py` provide evidence.
+
+## Workspace Acceptance (Cycles 27–30 Implemented)
+
+Start the local application:
+
+```bash
+uv run pcli dashboard --port 5097
+```
+
+Then open `http://127.0.0.1:5097/workspace`.
+
+### Automated Baseline (Workspace)
+
+| Criterion | Command | Result | Notes |
+|---|---|---|---|
+| Workspace route tests | `uv run pytest tests/test_cycle27.py tests/test_cycle28.py tests/test_cycle29.py tests/test_cycle30.py -v` | | |
+| Full suite | `uv run pytest -v` | | |
+| Lint / format | `uv run ruff check scripts tests && uv run ruff format --check scripts tests` | | |
+
+### Manual Workspace Flow
+
+| # | Scenario | Action | Expected Result | Result / Notes |
+|---:|---|---|---|---|
+| 1 | Route independence | Open `/workspace`, then `/studio`, then `/dashboard`. | All three routes are available and independently navigable; no route replaces another. | |
+| 2 | Card loading | Open `/workspace` with live cards in the repo. | Left pane shows "N live cards" and renders a card item for each with pill, title, summary (clamped), and metadata. | |
+| 3 | Empty card list | Open `/workspace` with no live cards. | Left pane shows "No live cards found. Mark cards as Live in Dashboard first." | |
+| 4 | Card selection | Check a card checkbox. | Card item receives `ws-card-selected` tint/border; coverage gap message updates. | |
+| 5 | Fit signal — target entry | Select a card; type a role or question into any target field. | Coverage value updates to a percentage; matched terms appear below the gap message when overlap exists. | |
+| 6 | Fit signal — no match | Select a card; type unrelated words with no keyword overlap. | Coverage value shows 0%; gap message: "No matching terms found. Add relevant keywords to the target." | |
+| 7 | Fit signal — missing target | Select a card; leave all target fields empty. | Coverage value shows "—"; gap message: "Add a target role or question to calculate fit." | |
+| 8 | Card disclosure — long summary | Select a card whose summary exceeds 2 lines when rendered. | "Show full summary" button is visible below the clamped text. | |
+| 9 | Card disclosure — expand | Click "Show full summary". | Full summary is revealed; button text changes to "Collapse summary". | |
+| 10 | Card disclosure — collapse | Click "Collapse summary". | Summary is re-clamped to 2 lines. | |
+| 11 | Disclosure does not toggle selection | Click "Show full summary" while a card is not selected. | Checkbox state is unchanged after disclosure click. | |
+| 12 | Preview generation | Select a card; fill in organization and role; click "Generate preview". | Preview output appears; no new card is created in the dashboard. | |
+| 13 | Light / dark toggle | Click "Dark mode" button in header. | Workspace switches to dark palette; button text changes to "Light mode"; preference is stored. | |
+| 14 | Dark mode — OS preference | Set OS to dark mode with no stored preference. | Workspace adopts dark palette automatically on load. | |
+| 15 | Dark mode — override OS | Set OS to dark mode; click "Light mode" button. | Workspace stays light; preference persists on refresh. | |
+| 16 | Keyboard focus | Tab through the page. | All interactive controls (checkboxes, target fields, generate button, theme toggle, disclosure buttons) receive a visible focus ring. | |
+| 17 | Long title / summary containment | Use or create a card with a very long title and long summary. | Title wraps without overflowing the left pane; summary is clamped and does not push layout horizontally. | |
+
+### Provider / No-Persistence Checks (Workspace)
+
+| # | Scenario | Action | Expected Result | Result / Notes |
+|---:|---|---|---|---|
+| 1 | No card created by preview | Generate a preview with live cards selected. | Card file count in `cards/` is unchanged after generation. | |
+| 2 | Preview uses existing endpoint | Inspect network request during generation. | `POST /api/studio/application-preview` is called with `output_type`, `card_ids`, `target_context`; no new Workspace-specific backend endpoint is used. | |
+| 3 | Mock mode | Run without a configured provider. | Preview shows provider fallback reason; no error is thrown. | SKIP if mock-only environment |
+
 ## Sign-Off
 
 ```text
@@ -109,5 +164,8 @@ Automated baseline: PASS / FAIL
 Studio workflow: PASS / FAIL
 Provider/privacy workflow: PASS / FAIL / SKIP (mock-only)
 Output quality: PASS / FAIL / PENDING
+Workspace automated: PASS / FAIL
+Workspace manual flow: PASS / FAIL / PENDING
+Workspace browser checks (dark mode, keyboard, containment): PASS / FAIL / PENDING
 Reviewer notes:
 ```

@@ -1,7 +1,7 @@
 # Post-v1 Dashboard Requirements
 
-Status: implemented baseline through Cycle 19; quality refresh drafted for Cycle 20+
-Last reviewed: 2026-05-25 (`audit/studio-methodology-requirements-refresh`)
+Status: implemented baseline through Cycle 30; Cycle 31 quality/spec audit complete
+Last reviewed: 2026-06-05 (Cycle 31 quality-spec audit)
 Owner: solo local user
 Related:
 
@@ -31,7 +31,7 @@ The user should not need to repeatedly rewrite the same experience for each outp
 
 ## 2. Product Surfaces
 
-The product has two dashboard surfaces with different jobs.
+The product has three surfaces with different jobs.
 
 ### 2.1 Admin Dashboard
 
@@ -69,6 +69,29 @@ Intended role:
 - connect to resume/portfolio generation
 
 Career Studio should be the lighter, creation-first experience. It should feel closer to Gamma + LinkedIn + resume builder than to a database admin tool.
+
+### 2.3 Workspace
+
+Route:
+
+```text
+/workspace
+```
+
+Implemented role (Cycles 27–30):
+
+- live card evidence selection for application writing
+- target context entry (organization, role, question, competency, job description)
+- client-side deterministic fit signal (keyword overlap between target text and selected cards)
+- application writing preview generation (reuses `/api/studio/application-preview`)
+- no card creation, mutation, or persistence
+
+Design reference: `docs/design-system-workspace.md`
+
+The Workspace is a parallel experimental surface. It does not replace `/studio`; both routes
+remain independently navigable. The Workspace's current fit-signal behavior is deterministic
+client-side keyword matching only; LLM-based theme extraction, set-coverage matching, and
+recommendation are future capabilities documented in `docs/design-system-workspace.md §8`.
 
 ## 3. Core Principles
 
@@ -431,10 +454,13 @@ Two initial reader tracks guide quality evaluation:
 
 These tracks inform future presets and evaluation rubrics; they do not change card storage.
 
-### 8.6 Future Application Writing Outputs
+### 8.6 Application Writing Outputs (Implemented through Cycle 26)
 
-After grounded preview behavior is implemented and verified, Studio should extend its output
-intent model with application writing:
+**Status (Cycles 21–26 implemented):** The application writing harness, UX refinements, and
+export/packet features described below are live. See D-009 (Cycle 21), D-010 (Cycles 22–23),
+D-011 (Cycle 25), and D-012 (Cycle 26) for decision records.
+
+Studio's output intent model extends with application writing:
 
 - `cover_letter` / 자기소개서
 - `application_answer` / supplied-question response
@@ -640,3 +666,85 @@ generation remain separate transformations rather than being reused as generic l
 - Safe fallback reasons: `not_configured`, `quota_or_rate_limit`, `auth_failed`,
   `network_error`, `malformed_response`, `provider_error`.
 - Application previews are not persisted as canonical cards.
+
+## 14. Post-Cycle 21 Decisions
+
+### D-010: Application Writing UX Improvements (Cycles 22–23)
+
+Cycles 22 and 23 improved the Application Writing UX without changing generation policy.
+
+- Cycle 22 added Studio UI contract smoke tests to catch frontend/backend response-shape
+  mismatches (e.g. the Cycle 21 `/api/cards` array-vs-object regression).
+- Cycle 23 improved Application Writing UX: richer live-card selector metadata, clearer
+  empty/error states, and sharper "Verified Draft" vs. "AI Guidance" labeling. Copy button
+  post-reset label consistency was confirmed as a separate sub-issue and fixed.
+- Neither cycle changed generation policy, provider behavior, or card persistence.
+
+### D-011: Export Without Persistence (Cycle 25)
+
+Application Writing export is browser-only. A plain-text handoff packet is assembled
+client-side from the most recent preview response and offered as a file download or clipboard
+fallback. No new card is created and no new backend endpoint is added. The copy/export reset
+helper `_resetAppHandoffState()` ensures stale state is cleared on failed regeneration.
+
+The packet contains: output-type-specific title, target context used, verified draft, evidence
+summary (using safe display labels in blind-hiring mode), and AI guidance clearly labeled
+"ADVISORY".
+
+### D-012: Packet Quality (Cycle 26)
+
+The exported packet format was improved:
+
+- Output-type-specific title (`_packetTitle`).
+- Draft Metadata section with character count, character limit, and provenance.
+- Non-string safety coercion (`_packetSafeText`) for all evidence fields.
+
+### D-013: Workspace Route Shell (Cycle 27)
+
+A parallel `/workspace` route was added. It does not replace `/studio`. The route renders
+`workspace.html` and exposes the two-pane layout shell (evidence cards left, target/output
+right). Both `/studio` and `/workspace` remain independently accessible from `/dashboard`.
+
+### D-014: Workspace Design Tokens (Cycle 28)
+
+All *repeated* Workspace color, radius, and border values are defined as CSS custom properties
+in a `:root` block. The token registry is maintained in `docs/design-system-workspace.md`.
+Font weights are limited to 400/500; `text-transform: uppercase` is prohibited. The source
+test `test_workspace_html_no_raw_rgba_accent_outside_root` enforces that raw accent color
+values appear only inside the `:root` definition.
+
+One documented exception: the Generate button foreground uses `color: #fff` — a single-use
+value, not a repeated role. The custom focus ring for that button is also absent; both are
+tracked in DEBT-006 of the Cycle 31 audit report.
+
+### D-015: Workspace Dark Mode and Polish (Cycle 29)
+
+Workspace supports OS-level dark mode via `@media (prefers-color-scheme: dark)` and a
+`localStorage`-backed manual theme toggle (`data-ws-theme` attribute on `<html>`). The
+manual preference takes priority over OS preference. Card hover, selected, and focus-visible
+states are token-driven in both modes.
+
+### D-016: Workspace Fit Signals (Cycle 30)
+
+The Workspace coverage panel computes a deterministic client-side fit percentage:
+
+```
+pct = |target_tokens ∩ card_tokens| / |target_tokens| × 100
+```
+
+Target tokens: lowercased, split on non-word boundaries, filtered by stop-word set (including
+TLDs), length > 2.
+Card tokens: same tokenization applied to title + summary + type + metrics + evidence
+URL/text across all selected live cards.
+
+The panel updates on card selection change and on input to any target field. Up to 6 matched
+terms are displayed. The fit signal is advisory only and does not alter provider payload or
+generated drafts. Future LLM-based theme extraction (S1) and set-coverage matching (S2) are
+not yet implemented; see `docs/design-system-workspace.md §8`.
+
+### D-017: Workspace Card Disclosure (Cycle 30 / Concurrent)
+
+Card summaries are clamped to 2 lines via `-webkit-line-clamp: 2`. A "Show full summary"
+disclosure button (`ws-card-more`) is revealed only when rendered summary height exceeds the
+clamp threshold. The button calls `event.stopPropagation()` to prevent toggling card
+selection. Expanding adds `ws-card-context-expanded` class; collapsing removes it.

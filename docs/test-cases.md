@@ -196,16 +196,65 @@ implemented in `tests/test_cycle21.py` as of Cycle 21.
 | PT-APP-005 | Character-count boundary | Answer has supplied minimum/maximum length | Below, at, and above character limit | `answer_draft` (server-composed) reports count/compliance; truncation adds an assumption; `draft_provenance=server_composed` remains set. | 경곗값분석 |
 | PT-APP-006 | Blind-hiring restriction | Target context forbids personal-background attributes | NCS-style application instruction plus cards | Per-field screening: identity-bearing title/summary/metric/evidence excluded independently; card with safe metric but identity title still appears using a safe display label (`Evidence C1`); canonical card ID replaced with opaque ref in provider payload and preview; partial redaction → 200 + `BLIND_HIRING_PERSONAL_IDENTIFIERS`; all fields excluded → HTTP 422 before provider call; advisory sanitized via `_sanitize_advisory` (covers `question_intent`, `competency_target`, `missing_info`, `ai_guidance`); identity-bearing `target_context.competency` not asserted in `answer_draft`. | 결정테이블/시나리오 |
 
+## Application Writing Export/Packet Test Cases (Cycles 25–26)
+
+Automated equivalents implemented in `tests/test_cycle25.py` and `tests/test_cycle26.py`.
+
+| 고유번호 | 테스트 대상 | 테스트 조건 | 테스트 데이터 | 예상 결과 | 기법 |
+|---|---|---|---|---|---|
+| PT-APP-EXP-001 | Export button hidden before preview | Page loads without generating | Empty state | Export button is hidden; copy button is hidden. | 상태전이 |
+| PT-APP-EXP-002 | Export packet structure | Preview is generated; export is triggered | Live card + target context | Plain-text packet contains output-type-specific title, target context section, verified draft section, draft metadata (char count, provenance), evidence summary with safe display labels, and AI guidance labeled "ADVISORY". | 기능 테스트 |
+| PT-APP-EXP-003 | Error path reset | Generation fails after a successful preview | Simulate regeneration with error | `_resetAppHandoffState` clears `_appLastPreview`, hides copy/export buttons, and clears export output. | 오류추정/상태전이 |
+| PT-APP-EXP-004 | No card created by export | Export is triggered | Any live-card fixture | Card file count in cards directory is unchanged after export. | 오류추정 |
+
+## Workspace Test Cases (Cycles 27–30)
+
+Automated equivalents implemented in `tests/test_cycle27.py` through `tests/test_cycle30.py`.
+
+**Evidence strength note:** Most Workspace test cases are *source-inspection* tests — they
+assert CSS class names, function names, or attribute strings in the served static files.
+Source-inspection tests verify that the intended code was deployed but do not prove runtime
+interaction behavior in a browser. Cases marked ⚠ require browser/manual verification to
+confirm the behavioral claim.
+
+| 고유번호 | 테스트 대상 | 테스트 조건 | 테스트 데이터 | 예상 결과 | 기법 | Evidence strength |
+|---|---|---|---|---|---|---|
+| TC-WS-001 | `/workspace` route availability | Client opens Workspace | `GET /workspace` | HTTP 200; `workspace.html` is served with two-pane layout. | 시나리오 | API integration |
+| TC-WS-002 | `/studio` coexistence | Workspace is added | `GET /studio` | `/studio` still returns HTTP 200; both routes work independently. | 회귀/시나리오 | API integration |
+| TC-WS-003 | Dashboard link to Workspace | Dashboard page is rendered | `GET /dashboard` | Dashboard contains a `/workspace` link alongside the `/studio` link. | 시나리오 | API integration |
+| TC-WS-004 | Live-card loading | Workspace JS fetches cards | `GET /api/cards` response | `Array.isArray(data)` guard applied; cards filtered to `status === "live"`; `data.cards` accessor not used. | 기능 테스트 | Source inspection |
+| TC-WS-005 | No card mutation from visit | `GET /workspace` | Cards directory before/after | Visiting `/workspace` does not create card files. | 오류추정 | API integration |
+| TC-WS-006 | Design tokens in `:root` | Workspace HTML is rendered | `GET /workspace` | `--ws-accent`, `--ws-surface`, `--ws-border`, `--ws-radius-md`, `--ws-radius-lg` are defined. | 기능 테스트 | Source inspection |
+| TC-WS-007 | 400/500 font-weight only | Workspace CSS | `GET /workspace` | `font-weight: 600` and `font-weight: 700` are absent. | 기능 테스트 | Source inspection |
+| TC-WS-008 | Sentence case (no uppercase transform) | Workspace CSS | `GET /workspace` | `text-transform: uppercase` is absent. | 기능 테스트 | Source inspection |
+| TC-WS-009 | Dark mode media query | Workspace HTML is rendered | `GET /workspace` | `@media (prefers-color-scheme: dark)` block is present and overrides `--ws-bg`, `--ws-surface`, `--ws-text`, `--ws-border`, `--ws-accent`. | 기능 테스트 | Source inspection |
+| TC-WS-010 | Manual dark toggle | Theme button is clicked | `toggleWorkspaceTheme()` called | `data-ws-theme` attribute is set on `<html>`; preference stored in `localStorage.setItem("workspace-theme", …)`; button label reflects mode. ⚠ | 상태전이 | Source inspection + browser |
+| TC-WS-011 | Card selected state | User checks a card checkbox | `_wsOnCardToggle` fires | `ws-card-selected` class added to card item; class removed on uncheck. ⚠ | 상태전이 | Source inspection + browser |
+| TC-WS-012 | Card hover state | User hovers card | Mouse enter | `--ws-accent-tint` background applied via `.ws-card-item:hover` rule. ⚠ | 기능 테스트 | Source inspection + browser |
+| TC-WS-013 | Focus-visible ring on checkbox | Keyboard tab to checkbox | `:focus-visible` | `outline: 2px solid var(--ws-accent)` applied to checkbox. ⚠ | 기능 테스트 | Source inspection + browser |
+| TC-WS-014 | Fit signal — tokenization | Target fields and cards contain text | Any non-empty target + selected live card | `_wsTokenize` filters stop-words and short tokens; `_wsCardTokens` unions title/summary/type/metrics/evidence. | 기능 테스트 | Source inspection |
+| TC-WS-015 | Fit signal — coverage percentage | Target text and selected card share keywords | Computed intersection | `ws-coverage-value` shows `pct%` where `pct = |T∩C|/|T|×100`. ⚠ | 기능 테스트 | Source inspection + browser |
+| TC-WS-016 | Fit signal — target input listeners | User types in target field | `input` event | `_wsWireTargetListeners` wires `input` listener to all 5 target fields; `_wsUpdateCoverage` fires on each change. ⚠ | 기능 테스트 | Source inspection + browser |
+| TC-WS-017 | Card disclosure — line-clamp | Summary is long | Rendered card | Context clamped to 2 lines; `ws-card-more` button shown only when `scrollHeight > clientHeight`. ⚠ | 기능 테스트 | Source inspection + browser |
+| TC-WS-018 | Card disclosure — expand/collapse | User clicks "Show full summary" | Button click | `ws-card-context-expanded` class applied; button text switches to "Collapse summary". ⚠ | 상태전이 | Source inspection + browser |
+| TC-WS-019 | Disclosure stops propagation | User clicks `ws-card-more` | `event.stopPropagation()` called | Card-selection checkbox is not toggled by disclosure click. ⚠ | 기능 테스트 | Source inspection + browser |
+| TC-WS-020 | Preview payload unchanged | Workspace generates preview | `generateWorkspacePreview()` called | `POST /api/studio/application-preview` with `output_type`, `card_ids`, `target_context` unchanged. | 회귀/기능 테스트 | Source inspection |
+
 ## Requirement Trace
 
 | Requirement area | Requirement source | Automated cases | Manual/evaluation evidence |
 |---|---|---|---|
 | Card storage and CLI outputs | `requirements.md` | `TC-CARD-*`, `TC-SEL-*`, `TC-CLI-*`, `TC-BUILD-*`, `TC-PRESET-*` | `docs/acceptance-v1.md` |
-| Admin dashboard | `requirements-dashboard.md` sections 2.1, 6, 7 | `TC-DASH-*` | `MT-DASH-*`; `docs/acceptance-studio.md` admin regression section |
-| Studio capture, preview, save | `requirements-dashboard.md` section 5 | `TC-STUDIO-*` | `docs/acceptance-studio.md` |
-| Optional LLM and provider configuration | `requirements-dashboard.md` section 8 and D-006/D-007 | `TC-LLM-*`, `TC-AI-*` | `docs/acceptance-studio.md` |
-| Grounded intent-specific drafting | `requirements-dashboard.md` sections 8.4-8.5, 8.7 and D-008 | `PT-GROUND-*` (planned) | `docs/research/llm-harness-evaluation.md` |
-| Application writing from canonical memory | `requirements-dashboard.md` section 8.6 and D-009 | `PT-APP-*` | `docs/acceptance-studio.md` Application Writing Acceptance (Cycle 21) |
+| Admin dashboard | `requirements-dashboard.md` §§2.1, 6, 7 | `TC-DASH-*` | `MT-DASH-*`; `docs/acceptance-studio.md` admin regression section |
+| Studio capture, preview, save | `requirements-dashboard.md` §5 | `TC-STUDIO-*` | `docs/acceptance-studio.md` |
+| Optional LLM and provider configuration | `requirements-dashboard.md` §8, D-006/D-007 | `TC-LLM-*`, `TC-AI-*` | `docs/acceptance-studio.md` |
+| Grounded intent-specific drafting | `requirements-dashboard.md` §§8.4-8.5, 8.7, D-008 | `PT-GROUND-*` (planned) | `docs/research/llm-harness-evaluation.md` |
+| Application writing harness (Cycle 21) | `requirements-dashboard.md` §8.6, D-009 | `PT-APP-*` | `docs/acceptance-studio.md` Application Writing Acceptance |
+| Application Writing UX and smoke tests (Cycles 22–23) | D-010 | `tests/test_cycle22.py`, `tests/test_cycle23.py` | `docs/acceptance-studio.md` |
+| Application Writing export/packet (Cycles 25–26) | D-011, D-012 | `PT-APP-EXP-*`; `tests/test_cycle25.py`, `tests/test_cycle26.py` | `docs/acceptance-studio.md` |
+| Workspace route, API, design tokens (Cycles 27–28) | D-013, D-014 | `TC-WS-001`–`TC-WS-009` | `docs/acceptance-studio.md` Workspace section |
+| Workspace dark mode and polish (Cycle 29) | D-015 | `TC-WS-010`–`TC-WS-013` | `docs/acceptance-studio.md` Workspace section; browser required |
+| Workspace fit signals and disclosure (Cycle 30) | D-016, D-017 | `TC-WS-014`–`TC-WS-020` | `docs/acceptance-studio.md` Workspace section; browser required |
 
 ## Manual Acceptance Test Cases
 
