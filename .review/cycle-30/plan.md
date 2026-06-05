@@ -130,3 +130,34 @@ rule-based signal is still low-risk and makes the Workspace materially more usef
 - No persistence/mutation:
   - Source search is sufficient; no filesystem write integration test is required unless
     implementation adds a write path, which would be out of scope.
+
+---
+
+## User Amendment v1: Card Text Containment
+
+User feedback after Cycle 30 review: long text in the left Workspace cards can overflow past the
+right edge. Keep all card text inside the left pane and use progressive disclosure for long
+summaries.
+
+Additional scope:
+- Constrain card content with `min-width: 0`, wrapping, and safe word breaking.
+- Clamp card summary/context text in collapsed state.
+- Show a `More` control only when the summary is actually truncated; allow toggling back with
+  `Less`.
+- Keep the disclosure control outside the selection label so expanding text does not toggle card
+  selection.
+- Preserve fit-signal, theme-toggle, `/api/cards`, and preview payload behavior.
+
+Additional tests:
+- Card content CSS includes containment and wrapping contracts.
+- Summary CSS includes multi-line clamp and expanded-state override.
+- Workspace JS renders a stable disclosure control and exposes a toggle helper.
+- Disclosure click stops propagation and does not call the card-selection handler.
+
+### User Amendment v2: Visible Disclosure Bar
+
+Replace the small `More` text link with a full-width disclosure bar:
+- Use explicit `Show full summary` / `Collapse summary` wording.
+- Include a directional indicator.
+- Provide a comfortably sized full-width click target with border/background state.
+- Associate the control with the summary through `aria-controls`.

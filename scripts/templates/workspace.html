@@ -83,6 +83,7 @@
     .ws-pane-title { font-size: .7rem; font-weight: 500; letter-spacing: .03em;
                      color: var(--ws-text-muted); margin: 0 0 12px; }
     .ws-card-item { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0;
+                    min-width: 0; max-width: 100%; overflow: hidden;
                     border-bottom: 1px solid var(--ws-border-thin); font-size: .85rem;
                     transition: background .12s; }
     .ws-card-item:last-child { border-bottom: none; }
@@ -91,14 +92,32 @@
                                      border-color: var(--ws-accent-border); }
     .ws-card-item input[type="checkbox"]:focus-visible { outline: 2px solid var(--ws-accent);
                                                          outline-offset: 2px; }
-    .ws-card-body { display: flex; flex-direction: column; gap: 2px; cursor: pointer; flex: 1; }
+    .ws-card-content { flex: 1; min-width: 0; max-width: 100%; }
+    .ws-card-body { display: flex; flex-direction: column; gap: 2px; cursor: pointer;
+                    min-width: 0; max-width: 100%; }
     .ws-card-pill { display: inline-block; font-size: .68rem; font-weight: 500;
                     background: var(--ws-accent-tint); color: var(--ws-accent);
-                    border-radius: var(--ws-radius-md); padding: 1px 6px; margin-bottom: 2px; }
-    .ws-card-title { font-weight: 500; color: var(--ws-text); font-size: .85rem; }
-    .ws-card-context { font-size: .78rem; color: var(--ws-text-secondary); white-space: nowrap;
-                       overflow: hidden; text-overflow: ellipsis; }
-    .ws-card-meta { font-size: .72rem; color: var(--ws-text-muted); }
+                    border-radius: var(--ws-radius-md); padding: 1px 6px; margin-bottom: 2px;
+                    max-width: 100%; overflow-wrap: anywhere; }
+    .ws-card-title { font-weight: 500; color: var(--ws-text); font-size: .85rem;
+                     max-width: 100%; overflow-wrap: anywhere; word-break: break-word; }
+    .ws-card-context { display: -webkit-box; font-size: .78rem; color: var(--ws-text-secondary);
+                       max-width: 100%; overflow: hidden; overflow-wrap: anywhere;
+                       word-break: break-word; -webkit-box-orient: vertical;
+                       -webkit-line-clamp: 2; }
+    .ws-card-context.ws-card-context-expanded { display: block; overflow: visible;
+                                                -webkit-line-clamp: initial; }
+    .ws-card-meta { font-size: .72rem; color: var(--ws-text-muted); max-width: 100%;
+                    overflow-wrap: anywhere; }
+    .ws-card-more { display: flex; align-items: center; justify-content: center; gap: 6px;
+                    width: 100%; min-height: 32px; margin-top: 6px; padding: 5px 8px;
+                    border: 1px solid var(--ws-accent-border);
+                    border-radius: var(--ws-radius-md); background: var(--ws-accent-tint);
+                    color: var(--ws-accent); font: inherit; font-size: .75rem;
+                    font-weight: 500; cursor: pointer; }
+    .ws-card-more[hidden] { display: none; }
+    .ws-card-more:hover { border-color: var(--ws-accent); background: var(--ws-input-bg); }
+    .ws-card-more:focus-visible { outline: 2px solid var(--ws-accent); outline-offset: 2px; }
     .ws-empty { font-size: .83rem; color: var(--ws-disabled); font-style: italic; padding: 8px 0; }
     .ws-section { background: var(--ws-surface); border: 1px solid var(--ws-border);
                   border-radius: var(--ws-radius-lg); padding: 14px 16px; margin-bottom: 12px; }
@@ -121,6 +140,8 @@
                          color: var(--ws-text-muted); margin-bottom: 4px; }
     .ws-coverage-value { font-size: 1.25rem; font-weight: 500; color: var(--ws-accent); }
     .ws-coverage-gap { font-size: .78rem; color: var(--ws-text-muted); margin-top: 4px; }
+    .ws-coverage-terms { font-size: .72rem; color: var(--ws-accent); margin-top: 4px;
+                         font-style: italic; }
     button.ws-generate-btn { background: var(--ws-accent); color: #fff; border: none;
                               border-radius: var(--ws-radius-md);
                               padding: 9px 20px; font-size: .88rem; cursor: pointer; width: 100%; }
@@ -196,6 +217,7 @@
           <div class="ws-coverage-label">Themes matched</div>
           <div class="ws-coverage-value" id="ws-coverage-value">—</div>
           <div class="ws-coverage-gap" id="ws-coverage-gap">Select cards and add a target to calculate coverage.</div>
+          <div class="ws-coverage-terms" id="ws-coverage-terms"></div>
         </div>
       </div>
 
