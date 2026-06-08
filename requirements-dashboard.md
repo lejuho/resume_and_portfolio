@@ -748,3 +748,13 @@ Card summaries are clamped to 2 lines via `-webkit-line-clamp: 2`. A "Show full 
 disclosure button (`ws-card-more`) is revealed only when rendered summary height exceeds the
 clamp threshold. The button calls `event.stopPropagation()` to prevent toggling card
 selection. Expanding adds `ws-card-context-expanded` class; collapsing removes it.
+
+### D-018: Workspace Browser Integration Test Driver (Cycle 32)
+
+A Python Playwright browser test suite (`tests/browser/test_workspace_browser.py`) exercises
+TC-WS-010 through TC-WS-019 via a real ephemeral Flask server and Headless Chromium. The
+driver uses `werkzeug.serving.make_server` on an ephemeral port with a session-scoped
+temporary card repository. No user canonical `cards/` are read or written; no live AI provider
+is configured. TC-WS-012 (hover computed style) remains source-inspection only due to headless
+CSS pseudo-class limitations; all other TC-WS-010 through TC-WS-019 cases are now
+browser-execution verified. Setup: `uv run playwright install chromium`.

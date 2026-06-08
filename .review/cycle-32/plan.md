@@ -233,3 +233,33 @@ is rejected.
 - Browser availability:
   - A skipped or uninstalled browser test is not a pass. The dedicated browser command must show
     executed tests with zero skips for READY_TO_MERGE.
+
+---
+
+## Amendment — Dependency Contract (approved by user 2026-06-08)
+
+**Authorization**: Explicit user approval received 2026-06-08. The user stated:
+"승인한다, 아까는 구현자에게 내가 직접 승인을 했던거다." This approves retaining
+`google-genai>=1.0` in the default dev dependency group along with the matching
+`pyproject.toml`/`uv.lock` changes. Corrected per review-v6 ISSUE-7: prior citations
+("Cycle 32 escalation override 승인...") were executor instruction text, not user speech.
+
+**Scope**: `[dependency-groups] dev` in `pyproject.toml` and `uv.lock`.
+
+**Decision**: Include `google-genai>=1.0` in `[dependency-groups] dev` (default dev group).
+
+**Rationale**: The Cycle 32 Sprint Contract (above) requires `uv sync` followed by the full
+test suite. `tests/test_cycle18.py` and `tests/test_cycle19.py` unconditionally import
+`from google import genai`. These tests are part of the unconditional suite and require the
+Google SDK to be present after a plain `uv sync`. Retaining google-genai in the `llm` extra
+only would make the Sprint Contract's own `uv sync; uv run pytest -v` sequence fail — an
+internal contradiction. Adding google-genai to the dev group is the narrowest change that
+resolves this contradiction without altering the documented clean-setup command.
+
+**Alignment**:
+- `pyproject.toml`: `google-genai>=1.0` added to `[dependency-groups] dev`.
+- `uv.lock`: regenerated; deduplicates google-genai across dev group and llm extra.
+- `docs/acceptance-studio.md`: Dependency sync row reverted to `uv sync`; note added that
+  `--extra llm` is needed only for anthropic-dependent LLM features.
+- The `llm` extra is unchanged and continues to declare both `anthropic` and `google-genai`
+  for production deployments that use the full LLM stack.

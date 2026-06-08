@@ -20,6 +20,7 @@ Key status: not configured / configured (never record key value)
 
 | Criterion | Command | Result | Notes |
 |---|---|---|---|
+| Dependency sync | `uv sync` | | Required before full suite; add `--extra llm` only if also testing anthropic-dependent paths |
 | Python tests | `uv run pytest -v` |  |  |
 | Lint | `uv run ruff check scripts tests` |  |  |
 | Format check | `uv run ruff format --check scripts tests` |  |  |
@@ -123,7 +124,9 @@ Then open `http://127.0.0.1:5097/workspace`.
 
 | Criterion | Command | Result | Notes |
 |---|---|---|---|
+| Dependency sync | `uv sync` | | Required before full suite; add `--extra llm` only for anthropic features |
 | Workspace route tests | `uv run pytest tests/test_cycle27.py tests/test_cycle28.py tests/test_cycle29.py tests/test_cycle30.py -v` | | |
+| Workspace browser tests | `uv run pytest tests/browser/test_workspace_browser.py -v` (requires `uv run playwright install chromium` once) | | |
 | Full suite | `uv run pytest -v` | | |
 | Lint / format | `uv run ruff check scripts tests && uv run ruff format --check scripts tests` | | |
 

@@ -19,6 +19,9 @@ dist/
 build/
 .pytest_cache/
 .ruff_cache/
+.playwright/
+test-results/
+playwright-report/
 .claude/
 .codex/
 cards/

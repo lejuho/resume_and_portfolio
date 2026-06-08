@@ -39,5 +39,8 @@ testpaths = ["tests"]
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
+    "pytest-playwright>=0.6",
+    "playwright>=1.49",
     "ruff>=0.15.13",
+    "google-genai>=1.0",
 ]
